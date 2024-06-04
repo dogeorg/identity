@@ -4,7 +4,7 @@ import {
   css
 } from "/vendor/@lit/all@3.1.2/lit-all.min.js";
 
-import * as toolbelt from "./editable-toolbelt.js";
+import * as toolbelt from "./tool-belt/tool-belt.js";
 
 class MakeEditable extends LitElement {
   static get properties() {
@@ -12,25 +12,6 @@ class MakeEditable extends LitElement {
       container_id: { type: String }
     };
   }
-
-  static styles = css`
-    .toolbelt {
-      position: relative;
-    }
-    .toolbelt sl-popup {
-      --arrow-color: #ff4cec;
-    }
-
-    .toolbelt .box {
-      width: 100px;
-      height: 40px;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      background: #ff4cec;
-      border-radius: var(--sl-border-radius-medium);
-    }
-  `;
 
   constructor() {
     super();
@@ -67,11 +48,11 @@ class MakeEditable extends LitElement {
     const toolbeltId = `${elementIndex}_${element.tagName}`;
 
     // Attempt to find an existing toolbelt for this element
-    let toolbelt = this.shadowRoot.querySelector(`editable-toolbelt[id="${toolbeltId}"]`);
+    let toolbelt = this.shadowRoot.querySelector(`tool-belt[id="${toolbeltId}"]`);
 
     // If no existing toolbelt, create a new one
     if (!toolbelt) {
-        toolbelt = document.createElement('editable-toolbelt');
+        toolbelt = document.createElement('tool-belt');
         toolbelt.id = toolbeltId; // Set the unique ID for reference
         toolbelt.forElement = element;
         toolbelt.editName = element.getAttribute('data-edit-name');
@@ -79,7 +60,7 @@ class MakeEditable extends LitElement {
     }
 
     // Hide all toolbelts
-    this.shadowRoot.querySelectorAll('editable-toolbelt').forEach(tb => {
+    this.shadowRoot.querySelectorAll('tool-belt').forEach(tb => {
       tb.hide(); 
     });
 
@@ -100,7 +81,7 @@ class MakeEditable extends LitElement {
   }
 
   closeToolbelt(event) {
-    const toolbelts = this.shadowRoot.querySelectorAll('editable-toolbelt');
+    const toolbelts = this.shadowRoot.querySelectorAll('tool-belt');
     toolbelts.forEach(toolbelt => {
       if (!toolbelt.contains(event.target)) {
         toolbelt.hide();

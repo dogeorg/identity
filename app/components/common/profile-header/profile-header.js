@@ -20,6 +20,10 @@ class ProfileHeader extends LitElement {
     // Text
     text: { type: String },
     text_color: { type: String },
+
+    // Subtext
+    subtext: { type: String },
+    subtext_color: { type: String },
   }
 
   static styles = css`
@@ -60,7 +64,8 @@ class ProfileHeader extends LitElement {
     .avatar {
       height: 120px;
       width: 120px;
-      border: 3px solid black;
+      border: 3px solid;
+      border-color: black;
       background-color: #ddd;
       background-image: url("/static/img/profile-header/avatar.png");
       background-size: contain;
@@ -76,7 +81,15 @@ class ProfileHeader extends LitElement {
       font-weight: bold;
       color: white;
       font-size: 2rem;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+      line-height: 1;
+      margin-top: 1rem;
+    }
 
+    .subtext {
+      font-family: 'Comic Neue';
+      color: white;
+      font-size: 1.2rem;
       text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
     }
   `
@@ -84,6 +97,7 @@ class ProfileHeader extends LitElement {
   constructor() {
     super();
     this.text_default = "Mystery Shibe"
+    this.subtext_default = "Moon 🌒"
   }
 
   render() {
@@ -104,13 +118,17 @@ class ProfileHeader extends LitElement {
       color: this.text_color
     }
 
+    const subtext_styles = {
+      color: this.subtext_color
+    }
+
     return html`
       <div class="background-wrap">
         <div
           class="background"
           style=${styleMap(bg_styles)}
           data-edit-type="background-image"
-          data-edit-name="bg"
+          data-edit-name="profileBackdrop"
         ></div>
       </div>
       <div class="subject-wrap">
@@ -119,16 +137,24 @@ class ProfileHeader extends LitElement {
             class="avatar"
             style=${styleMap(avatar_styles)}
             data-edit-type="image"
-            data-edit-name="avatar"
+            data-edit-name="avatarImage"
           ></div>
         </div>
         <div class="text-wrap">
           <div
             class="text"
             data-edit-type="text"
-            data-edit-name="text"
+            data-edit-name="displayName"
             style=${styleMap(text_styles)}
           >${this.text || this.text_default}</div>
+        </div>
+        <div class="text-wrap">
+          <div
+            class="subtext"
+            data-edit-type="text"
+            data-edit-name="subTitle"
+            style=${styleMap(subtext_styles)}
+          >${this.subtext || this.subtext_default}</div>
         </div>
       </div>
       `

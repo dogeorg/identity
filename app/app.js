@@ -17,7 +17,6 @@ import { StoreSubscriber } from "/state/subscribe.js";
 
 // Views
 import "/components/views/index.js";
-import "/components/views/welcome-dialog/index.js";
 
 // Render chunks
 import * as renderMethods from "/components/views/app-view/renders/index.js";
@@ -92,7 +91,7 @@ class IdentityApp extends LitElement {
       </div>
 
       <aside>
-        <welcome-dialog></welcome-dialog>
+        <!-- welcome-dialog></welcome-dialog -->
       </aside>
 
       <style>

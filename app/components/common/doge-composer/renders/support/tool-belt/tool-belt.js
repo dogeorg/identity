@@ -4,7 +4,10 @@ import {
   css
 } from "/vendor/@lit/all@3.1.2/lit-all.min.js";
 
-class EditableToolbelt extends LitElement {
+import { bindToClass } from "/utils/class-bind.js";
+import * as methods from "./lib/index.js";
+
+class Toolbelt extends LitElement {
   static properties = {
     forElement: { type: Object },
     editName: { type: String },
@@ -18,19 +21,19 @@ class EditableToolbelt extends LitElement {
     }
 
     sl-popup {
-      --arrow-color: #dd19c8;
+      --arrow-color: #f026db;
       --arrow-size: 0.7rem;
     }
 
     sl-popup::part(popup) {
-      box-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+      box-shadow: 2px 2px 4px rgba(0,0,0,0.2);
     }
 
     .box {
       display: flex;
       justify-content: center;
       align-items: start;
-      background: #dd19c8;
+      background: #f026db;
       border-radius: var(--sl-border-radius-medium);
     }
 
@@ -50,9 +53,11 @@ class EditableToolbelt extends LitElement {
       align-items: center;
       justify-content: center;
       width: 40px;
+      height: 50px;
       padding: 8px;
       padding-bottom: 4px;
       color: black;
+      user-select: none;
     }
 
     .option sl-icon {
@@ -63,16 +68,18 @@ class EditableToolbelt extends LitElement {
       font-size: 0.7rem;
       text-transform: uppercase;
       font-weight: bold;
+      user-select: none;
     }
 
     .option:hover {
       cursor: pointer;
-      background: rgba(0,0,0,0.2);
+      background: rgba(255,255,255, 0.25);
     }
   `;
 
   constructor() {
     super();
+    bindToClass(methods, this);
     this.forElement = null;
     this.editName = '';
   }
@@ -81,28 +88,12 @@ class EditableToolbelt extends LitElement {
     super.connectedCallback();
   }
 
-  firstUpdated() {
-    this.attachOptionListeners();
-  }
-
   show() {
       this.active = true;
     }
 
   hide() {
     this.active = false;
-  }
-
-  attachOptionListeners() {
-    const optionsButtons = this.shadowRoot.querySelectorAll('.box .options .option');
-    optionsButtons.forEach((element, index) => {
-      element.addEventListener('click', (event) => this.handleOptionsClick(event));
-    });
-  }
-
-  handleOptionsClick(event) {
-    console.log(event);
-    event.stopPropagation();
   }
 
   render() {
@@ -117,22 +108,7 @@ class EditableToolbelt extends LitElement {
       >
         <div class="box">
           <div class="options">
-            <div class="option">
-              <sl-icon name="arrows-move"></sl-icon>
-              <span class="option-text">Move</span>
-            </div>
-            <div class="option">
-              <sl-icon name="brush"></sl-icon>
-              <span class="option-text">Edit</span>
-            </div>
-            <div class="option">
-              <sl-icon name="trash3"></sl-icon>
-              <span class="option-text">Trash</span>
-            </div>
-            <div class="option">
-              <sl-icon name="copy"></sl-icon>
-              <span class="option-text">Copy</span>
-            </div>
+            ${this.generateOptions(this.forElement)}
           </div>
           <div class="drawer"></div>
         </div>
@@ -141,4 +117,4 @@ class EditableToolbelt extends LitElement {
   }
 }
 
-customElements.define("editable-toolbelt", EditableToolbelt);
+customElements.define("tool-belt", Toolbelt);
