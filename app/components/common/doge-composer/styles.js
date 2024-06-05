@@ -31,4 +31,21 @@ export const styles = css`
   .element-container.actively-editing {
     z-index: 99;
   }
+
+  /* DEBUG PANEL */
+  .floating-aside {
+    position: absolute;
+    left: 600px;
+    top: 50px;
+    display: flex;
+    flex-direction: row;
+    gap: 5em;
+  }
+
+  .floating-aside > div {
+    overflow-x: auto;
+    max-width: 380px;
+    min-width: 200px;
+  }
+
 `

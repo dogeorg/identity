@@ -14,8 +14,7 @@ import { bindToClass } from "/utils/class-bind.js";
 import * as methods from "./renders/index.js";
 
 // Other components
-import * as components from "./renders/support/index.js"
-
+import * as components from "./renders/support/index.js";
 
 import { styles } from "./styles.js";
 
@@ -24,6 +23,8 @@ class DogeComposer extends LitElement {
   static get properties() {
     return {
       actively_editing_container_id: { type: String },
+      initial_data: { type: Object },
+      working_data: { type: Object },
     };
   }
 
@@ -32,16 +33,37 @@ class DogeComposer extends LitElement {
   constructor() {
     super();
     bindToClass(methods, this);
+
     // Good place to set defaults.
+    this.working_data = {
+      active: false,
+      mode: "🚃",
+      codes: [48348, 28923, 39080],
+      city: "London",
+    };
+
+    this.committed_data = {
+      ...this.working_data
+    }
   }
 
   connectedCallback() {
     super.connectedCallback();
-    this.addEventListener('toolbelt-popup-shown', this.handleToolbeltPopupShown)
+    this.addEventListener(
+      "toolbelt-popup-shown",
+      this.handleToolbeltPopupShown,
+    );
+  }
+
+  firstUpdated() {
+    const workingElem = this.shadowRoot.querySelector("#WorkingData");
+    const committedElem = this.shadowRoot.querySelector("#CommittedData");
+    workingElem.innerHTML = prettyPrintJson.toHtml(this.working_data);
+    committedElem.innerHTML = prettyPrintJson.toHtml(this.committed_data);
   }
 
   handleToolbeltPopupShown(event) {
-    this.actively_editing_container_id = event.detail.container_id
+    this.actively_editing_container_id = event.detail.container_id;
   }
 
   disconnectedCallback() {
@@ -59,23 +81,33 @@ class DogeComposer extends LitElement {
   }
 
   render() {
-
     return html`
       <div class="elements-container">
-        
         ${this.elements.map((el, index) => {
           const containerClasses = {
-            'element-container': true,
-            'actively-editing': this.actively_editing_container_id === index.toString()
-          }
+            "element-container": true,
+            "actively-editing":
+              this.actively_editing_container_id === index.toString(),
+          };
           return html`
-          <div class=${classMap(containerClasses)} container_id="${index}">
-            ${this[`_render_${el.type}`](el, index)}
-          </div>
-          <element-divider>
-            <sl-icon name="plus-square-fill" label="Add Element"></sl-icon>
-          </element-divider>
-        `})}
+            <div class=${classMap(containerClasses)} container_id="${index}">
+              ${this[`_render_${el.type}`](el, index)}
+            </div>
+            <element-divider>
+              <sl-icon name="plus-square-fill" label="Add Element"></sl-icon>
+            </element-divider>
+          `;
+        })}
+      </div>
+      <div id="debug-container" class="floating-aside">
+        <div>
+          <h3>Working Data</h3>
+          <pre id="WorkingData" class="json-container"></pre>
+        </div>
+        <data>
+          <h3>Comitted Data</h3>
+          <pre id="CommittedData" class="json-container"></pre>
+        </data>
       </div>
     `;
   }

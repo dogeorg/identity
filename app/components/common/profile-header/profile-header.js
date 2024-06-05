@@ -1,4 +1,9 @@
-import { LitElement, html, css, styleMap } from '/vendor/@lit/all@3.1.2/lit-all.min.js';
+import {
+  LitElement,
+  html,
+  css,
+  styleMap,
+} from "/vendor/@lit/all@3.1.2/lit-all.min.js";
 
 class ProfileHeader extends LitElement {
   static properties = {
@@ -24,18 +29,18 @@ class ProfileHeader extends LitElement {
     // Subtext
     subtext: { type: String },
     subtext_color: { type: String },
-  }
+  };
 
   static styles = css`
     :host {
       position: relative;
       overflow: hidden;
       display: block;
-      height:270px;
+      height: 270px;
       width: 100%;
     }
     .background-wrap {
-      position:absolute;
+      position: absolute;
       z-index: -1;
       top: 0;
       left: 0;
@@ -77,27 +82,29 @@ class ProfileHeader extends LitElement {
     }
 
     .text {
-      font-family: 'Comic Neue';
+      font-family: "Comic Neue";
       font-weight: bold;
       color: white;
       font-size: 2rem;
-      text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+      text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.2);
       line-height: 1;
       margin-top: 1rem;
+      min-width: 3rem;
     }
 
     .subtext {
-      font-family: 'Comic Neue';
+      font-family: "Comic Neue";
       color: white;
       font-size: 1.2rem;
-      text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+      text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.2);
+      min-width: 3rem;
     }
-  `
+  `;
 
   constructor() {
     super();
-    this.text_default = "Mystery Shibe"
-    this.subtext_default = "Moon 🌒"
+    this.text_default = "Mystery Shibe";
+    this.subtext_default = "Moon 🌒";
   }
 
   render() {
@@ -105,22 +112,22 @@ class ProfileHeader extends LitElement {
       backgroundImage: this.bg_img_url,
       backgroundSize: this.bg_size,
       opacity: this.bg_opacity,
-    }
+    };
 
     const avatar_styles = {
       borderColor: this.avatar_border_color,
       backgroundColor: this.avatar_bg_color,
       backgroundImage: this.avatar_img_url,
       backgroundSize: this.avatar_bg_size,
-    }
+    };
 
     const text_styles = {
-      color: this.text_color
-    }
+      color: this.text_color,
+    };
 
     const subtext_styles = {
-      color: this.subtext_color
-    }
+      color: this.subtext_color,
+    };
 
     return html`
       <div class="background-wrap">
@@ -145,6 +152,7 @@ class ProfileHeader extends LitElement {
             class="text"
             data-edit-type="text"
             data-edit-name="displayName"
+            data-edit-opts="textColor, bgColor, editText"
             style=${styleMap(text_styles)}
           >${this.text || this.text_default}</div>
         </div>
@@ -153,14 +161,13 @@ class ProfileHeader extends LitElement {
             class="subtext"
             data-edit-type="text"
             data-edit-name="subTitle"
+            data-edit-opts="textColor, bgColor, editText"
             style=${styleMap(subtext_styles)}
           >${this.subtext || this.subtext_default}</div>
         </div>
       </div>
-      `
+    `;
   }
 }
 
-customElements.define('profile-header', ProfileHeader);
-
-
+customElements.define("profile-header", ProfileHeader);

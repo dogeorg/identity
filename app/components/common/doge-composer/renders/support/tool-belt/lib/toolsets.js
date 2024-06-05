@@ -1,41 +1,46 @@
-import { LitElement, html, css, choose } from "/vendor/@lit/all@3.1.2/lit-all.min.js";
+import {
+  LitElement,
+  html,
+  css,
+  choose,
+} from "/vendor/@lit/all@3.1.2/lit-all.min.js";
 
 const iconDict = {
   /* Text */
-  textColor: 'palette',
-  bgColor: 'paint-bucket',
-  editText: 'input-cursor-text',
-  size: 'arrows-angle-expand',
+  textColor: "palette",
+  bgColor: "paint-bucket",
+  editText: "input-cursor-text",
+  size: "arrows-angle-expand",
 
   /* Image */
-  borderColor: 'border-width',
+  borderColor: "border-width",
   // bgColor: 'paint-bucket',
-  crop: 'crop',
-  effect: 'magic',
-  imageReplace: 'upload',
-}
+  crop: "crop",
+  effect: "magic",
+  imageReplace: "upload",
+};
 
 const labelDict = {
   /* Text */
-  textColor: 'Text',
-  bgColor: 'Bg',
-  editText: 'Edit',
-  size: 'Sizing',
+  textColor: "Text",
+  bgColor: "Bg",
+  editText: "Edit",
+  size: "Sizing",
 
   /* Image */
-  borderColor: 'Border',
+  borderColor: "Border",
   // bgColor: 'paint-bucket',
-  crop: 'Crop',
-  effect: 'Magic',
-  imageReplace: 'Change',
-}
+  crop: "Crop",
+  effect: "Magic",
+  imageReplace: "Change",
+};
 
 function getToolIcon(o) {
-  return iconDict[o] || 'question-square'
+  return iconDict[o] || "question-square";
 }
 
 function getToolLabel(o) {
-  return labelDict[o] || '??'
+  return labelDict[o] || "??";
 }
 
 function getOptionHandler(o, ctx) {
@@ -49,11 +54,22 @@ function getOptionHandler(o, ctx) {
     crop: ctx.setCrop,
     effect: ctx.setMagic,
     imageReplace: ctx.setImage,
-  }
+  };
   return handlerDict[o];
 }
 
-const primaryColors = ['white', 'red', 'orange', 'yellow', 'green', 'blue', 'violet', 'indigo', 'purple', 'black'];
+const primaryColors = [
+  "white",
+  "red",
+  "orange",
+  "yellow",
+  "green",
+  "blue",
+  "violet",
+  "indigo",
+  "purple",
+  "black",
+];
 let borderColorIndex = 0;
 let colorIndex = 0;
 
@@ -68,54 +84,101 @@ export function setTextColor(option, element) {
 }
 
 export function generateOptions(element) {
-  const name = element.getAttribute('data-edit-name');
-  const type = element.getAttribute('data-edit-type');
+  const name = element.getAttribute("data-edit-name");
+  const type = element.getAttribute("data-edit-type");
+  const forcedOptions = element.getAttribute("data-edit-opts");
 
   let options = [];
-  
-  switch(type) {
-    case 'text':
-      options = ['textColor', 'bgColor', 'editText', 'size'];
-      break;
-
-    case 'image':
-      options = ['borderColor', 'bgColor', 'crop', 'effect', 'imageReplace'];
-      break;
+  if (forcedOptions) {
+    options = forcedOptions.split(",");
+    options = options.map(o => o.trimStart());
   }
-  return options.map(option => html`
-    ${choose(option, [
-      [
-        'borderColor', () => html`
-          <option-color-picker 
-            .forElement=${element}
-            editName=${name}>
-          </option-color-picker>`
-      ],[
-        'textColor', () => html`
-        <div class="option" @click=${(event) => this.handleOptionClick(event, option, element)}>
-          <sl-icon name="palette"></sl-icon>
-          <span class="option-text">Text!</span>
-        </div>`
-      ]
-    ],
-    () => html`
-      <div class="option" @click=${(event) => this.handleOptionClick(event, option, element)}>
-        <sl-icon name="${getToolIcon(option)}"></sl-icon>
-        <span class="option-text">${getToolLabel(option)}</span>
-      </div>`)}
-    `
-  )
+
+  if (!forcedOptions) {
+    switch (type) {
+      case "text":
+        options = ["textColor", "bgColor", "editText", "size"];
+        break;
+
+      case "image":
+        options = ["borderColor", "bgColor", "crop", "effect", "imageReplace"];
+        break;
+    }
+  }
+
+  return options.map(
+    (option) => html`
+      ${choose(
+        option,
+        [
+          [
+            "borderColor",
+            () =>
+              html`<option-color-picker
+                .forElement=${element}
+                editName=${name}
+                optionLabel="Border"
+                elementPropertyName="borderColor"
+              >
+              </option-color-picker>`,
+          ],
+          [
+            "bgColor",
+            () =>
+              html`<option-color-picker
+                .forElement=${element}
+                editName=${name}
+                optionLabel="Bg"
+                elementPropertyName="backgroundColor"
+                allowOpacity
+              >
+              </option-color-picker>`,
+          ],
+          [
+            "textColor",
+            () =>
+              html`<option-color-picker
+                .forElement=${element}
+                editName=${name}
+                optionLabel="Text"
+                elementPropertyName="color"
+              >
+              </option-color-picker>`,
+          ],
+          [
+            "editText",
+            () =>
+              html`<option-text-edit
+                .forElement=${element}
+                editName=${name}
+                optionLabel="Edit"
+                elementPropertyName="textContent"
+              >
+              </option-text-edit>`,
+          ],
+        ],
+        () =>
+          html` <div
+            class="option"
+            @click=${(event) => this.handleOptionClick(event, option, element)}
+          >
+            <sl-icon name="${getToolIcon(option)}"></sl-icon>
+            <span class="option-text">${getToolLabel(option)}</span>
+          </div>`,
+      )}
+    `,
+  );
 }
 
 export function handleOptionClick(event, option, element) {
   event.stopPropagation();
 
-  const handler = getOptionHandler(option, this)
+  const handler = getOptionHandler(option, this);
 
   console.log(option, handler);
-  if (typeof handler === 'function') {
+  if (typeof handler === "function") {
     handler(option, element);
   } else {
-    console.log('handler not found for option:', option);
+    console.log("handler not found for option:", option);
   }
 }
