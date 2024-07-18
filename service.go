@@ -38,6 +38,7 @@ func NewIdentService(signKey dnet.PrivKey, newIden chan iden.IdentityMsg) govern
 	return &IdentityService{
 		signKey: signKey,
 		newIden: newIden,
+		known:   map[string]dnet.Message{},
 	}
 }
 
