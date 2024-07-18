@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"log"
+	"math/rand/v2"
 	"net"
 	"rad/gossip/dnet"
 	"rad/gossip/iden"
@@ -30,6 +31,7 @@ type IdentityService struct {
 	signKey dnet.PrivKey
 	newIden chan iden.IdentityMsg
 	idenMsg []byte
+	known   map[string]dnet.Message
 }
 
 func NewIdentService(signKey dnet.PrivKey, newIden chan iden.IdentityMsg) governor.Service {
@@ -103,6 +105,8 @@ func (s *IdentityService) msgLoop() (e error) {
 func (s *IdentityService) recvIden(msg dnet.Message) {
 	id := iden.DecodeIdentityMsg(msg.Payload)
 	log.Printf("[Iden] received identity: %v %v %v %v %v signed by: %v", id.Name, id.Country, id.City, id.Lat, id.Long, hex.EncodeToString(msg.PubKey))
+	key := hex.EncodeToString(msg.PubKey)
+	s.known[key] = msg
 }
 
 func (s *IdentityService) Stop() {
@@ -119,7 +123,25 @@ func (s *IdentityService) chatterIdent(sock net.Conn) {
 		case <-time.After(10 * time.Second):
 		}
 
-		if s.idenMsg != nil {
+		count := len(s.known)
+		n := rand.N(count + 1)
+		if n < count {
+			var r dnet.Message
+			for _, v := range s.known {
+				count--
+				if count == 0 {
+					r = v
+					break
+				}
+			}
+			err := dnet.ForwardMessage(sock, r)
+			if err != nil {
+				log.Printf("[Iden] cannot send to dogenet: %v", err)
+				sock.Close()
+				return
+			}
+			log.Printf("[Iden] sent message: %v %v", r.Chan, r.Tag)
+		} else if s.idenMsg != nil {
 			_, err := sock.Write(s.idenMsg)
 			if err != nil {
 				log.Printf("[Iden] cannot send to dogenet: %v", err)
