@@ -6,9 +6,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
-	"rad/gossip/iden"
-	"rad/governor"
 	"time"
+
+	"code.dogecoin.org/gossip/iden"
+	"code.dogecoin.org/governor"
 )
 
 func main() {

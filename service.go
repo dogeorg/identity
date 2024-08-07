@@ -7,15 +7,16 @@ import (
 	"log"
 	"math/rand/v2"
 	"net"
-	"rad/gossip/dnet"
-	"rad/gossip/iden"
-	"rad/governor"
 	"time"
+
+	"code.dogecoin.org/gossip/dnet"
+	"code.dogecoin.org/gossip/iden"
+	"code.dogecoin.org/governor"
 )
 
 // Identity Cache and Protocol-Handler
 
-// Identities are broadcast on the "Iden" channel.
+// Identities are broadcast on the "Iden" channel.x
 // An identity stays active for 30 days after signing.
 // Tracks all currently active identities on the network.
 // Allows Identities to be pinned.

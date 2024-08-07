@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"time"
 
-	"rad/gossip/dnet"
-	"rad/gossip/iden"
-	"rad/governor"
+	"code.dogecoin.org/gossip/dnet"
+	"code.dogecoin.org/gossip/iden"
+	"code.dogecoin.org/governor"
 )
 
 func NewWebAPI(bind string, port int, newIden chan iden.IdentityMsg) governor.Service {

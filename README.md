@@ -1,5 +1,7 @@
 # Dogecoin Identity Protocol Handler
 
+This project is hosted on [radicle.xyz](radicle.xyz) at [rad:z4FoA61FxfXyXpfDovtPKQQfiWJWH](https://app.radicle.xyz/nodes/ash.radicle.garden/z4FoA61FxfXyXpfDovtPKQQfiWJWH)
+
 ## What this service does
 
 * Connects to DogeNet on channel "Iden".

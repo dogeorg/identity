@@ -8,7 +8,7 @@ identity: clean
 	go build -o identity ./cmd/identity/. 
 
 dev:
-	go run ./cmd/identity 127.0.0.1
+	go run ./*.go 127.0.0.1
 
 test:
 	go test -v ./test
