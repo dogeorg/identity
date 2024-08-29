@@ -114,7 +114,7 @@ func (s SQLiteStoreCtx) doTxn(name string, work func(tx *sql.Tx) error) error {
 					continue
 				}
 			}
-			return fmt.Errorf("[Store] %v: %v", name, err)
+			return err
 		}
 		err = tx.Commit()
 		if err != nil {
