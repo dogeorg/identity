@@ -1,4 +1,4 @@
-package main
+package web
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"code.dogecoin.org/governor"
 )
 
-func NewWebAPI(bind string, port int, newIden chan iden.IdentityMsg) governor.Service {
+func New(bind string, port int, newIden chan iden.IdentityMsg) governor.Service {
 	mux := http.NewServeMux()
 	a := &WebAPI{
 		srv: http.Server{

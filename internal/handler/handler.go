@@ -1,17 +1,16 @@
-package main
+package handler
 
 import (
 	"bufio"
 	"encoding/hex"
-	"errors"
 	"log"
-	"math/rand/v2"
 	"net"
 	"time"
 
 	"code.dogecoin.org/gossip/dnet"
 	"code.dogecoin.org/gossip/iden"
 	"code.dogecoin.org/governor"
+	"code.dogecoin.org/identity/internal/spec"
 )
 
 // Identity Cache and Protocol-Handler
@@ -23,47 +22,31 @@ import (
 // Prepares a set of identities to gossip to peers.
 
 const ProtocolSocket = "/tmp/dogenet.sock"
+const OneUnixDay = 86400
 
 var ChanIden = dnet.NewTag("Iden")
 
 type IdentityService struct {
 	governor.ServiceCtx
+	_store  spec.Store
+	store   spec.StoreCtx
 	sock    net.Conn
-	signKey dnet.PrivKey
+	idenKey dnet.KeyPair
 	newIden chan iden.IdentityMsg
 	idenMsg []byte
-	known   map[string]dnet.Message
 }
 
-func NewIdentService(signKey dnet.PrivKey, newIden chan iden.IdentityMsg) governor.Service {
+func New(store spec.Store, idenKey dnet.KeyPair, newIden chan iden.IdentityMsg) governor.Service {
 	return &IdentityService{
-		signKey: signKey,
+		_store:  store,
+		idenKey: idenKey,
 		newIden: newIden,
-		known:   map[string]dnet.Message{},
 	}
 }
 
 func (s *IdentityService) Run() {
-	for !s.Stopping() {
-		err := s.msgLoop()
-		if err != nil {
-			log.Printf("[Iden] caught panic: %v", err)
-		}
-		s.Sleep(time.Second)
-	}
-}
-
-func (s *IdentityService) msgLoop() (e error) {
-	// recover and return from a panic
-	defer func() {
-		if err := recover(); err != nil {
-			if er, ok := err.(error); ok {
-				e = er
-			} else {
-				e = errors.New("panic")
-			}
-		}
-	}()
+	// bind store to context
+	s.store = s._store.WithCtx(s.Context)
 	// connect to dogenet service
 	sock, err := net.Dial("unix", ProtocolSocket)
 	if err != nil {
@@ -80,7 +63,8 @@ func (s *IdentityService) msgLoop() (e error) {
 		return
 	}
 	s.sock = sock // for Stop()
-	go s.chatterIdent(sock)
+	go s.gossipMyIdentity(sock)
+	go s.gossipRandomIdentities(sock)
 	reader := bufio.NewReader(sock)
 	// read messages until reading fails
 	for !s.Stopping() {
@@ -91,59 +75,40 @@ func (s *IdentityService) msgLoop() (e error) {
 			return
 		}
 		if msg.Chan != ChanIden {
-			log.Printf("[Iden] ignored message: [%s] %s", msg.Chan, msg.Tag)
+			log.Printf("[Iden] ignored message: [%s][%s]", msg.Chan, msg.Tag)
 			continue
 		}
 		switch msg.Tag {
 		case iden.TagIdentity:
 			s.recvIden(msg)
 		default:
-			log.Printf("[Iden] unknown message: [%s] %s", msg.Chan, msg.Tag)
+			log.Printf("[Iden] unknown message: [%s][%s]", msg.Chan, msg.Tag)
 		}
 	}
-	return
 }
 
 func (s *IdentityService) recvIden(msg dnet.Message) {
 	id := iden.DecodeIdentityMsg(msg.Payload)
-	log.Printf("[Iden] received identity: %v %v %v %v %v signed by: %v", id.Name, id.Country, id.City, id.Lat, id.Long, hex.EncodeToString(msg.PubKey))
-	key := hex.EncodeToString(msg.PubKey)
-	s.known[key] = msg
+	days := (id.Time.Local().Unix() - time.Now().Unix()) / OneUnixDay
+	log.Printf("[Iden] received identity: %v %v %v %v %v signed by: %v (%v days remain)", id.Name, id.Country, id.City, id.Lat, id.Long, hex.EncodeToString(msg.PubKey), days)
+	s.store.SetIdentity(msg.PubKey, msg.Payload, msg.Signature, id.Time.Local().Unix())
 }
 
 func (s *IdentityService) Stop() {
 	s.sock.Close()
 }
 
-func (s *IdentityService) chatterIdent(sock net.Conn) {
+// goroutine
+func (s *IdentityService) gossipMyIdentity(sock net.Conn) {
 	for !s.Stopping() {
 		// update identity if it has changed
 		select {
 		case id := <-s.newIden:
-			s.idenMsg = dnet.EncodeMessage(ChanIden, iden.TagIdentity, s.signKey, id.Encode())
+			s.idenMsg = dnet.EncodeMessage(ChanIden, iden.TagIdentity, s.idenKey, id.Encode())
 			log.Printf("[Iden] signed new identity: %v", s.idenMsg)
-		case <-time.After(10 * time.Second):
+		case <-time.After(9 * time.Second):
 		}
-
-		count := len(s.known)
-		n := rand.N(count + 1)
-		if n < count {
-			var r dnet.Message
-			for _, v := range s.known {
-				count--
-				if count == 0 {
-					r = v
-					break
-				}
-			}
-			err := dnet.ForwardMessage(sock, r)
-			if err != nil {
-				log.Printf("[Iden] cannot send to dogenet: %v", err)
-				sock.Close()
-				return
-			}
-			log.Printf("[Iden] sent message: %v %v", r.Chan, r.Tag)
-		} else if s.idenMsg != nil {
+		if s.idenMsg != nil {
 			_, err := sock.Write(s.idenMsg)
 			if err != nil {
 				log.Printf("[Iden] cannot send to dogenet: %v", err)
@@ -152,5 +117,34 @@ func (s *IdentityService) chatterIdent(sock net.Conn) {
 			}
 			log.Printf("[Iden] sent message: %v %v", ChanIden, iden.TagIdentity)
 		}
+	}
+}
+
+// goroutine
+func (s *IdentityService) gossipRandomIdentities(sock net.Conn) {
+	for !s.Stopping() {
+		// wait for next turn
+		time.Sleep(11 * time.Second)
+
+		// choose a random identity
+		pub, payload, sig, _, err := s.store.ChooseIdentity()
+		if err != nil {
+			if spec.IsNotFoundError(err) {
+				log.Printf("[Iden]: no identities to gossip")
+			} else {
+				log.Printf("[Iden]: %v", err)
+			}
+			continue
+		}
+
+		// send the message to peers
+		msg := dnet.ReEncodeMessage(ChanIden, iden.TagIdentity, pub, sig, payload)
+		_, err = sock.Write(msg)
+		if err != nil {
+			log.Printf("[Iden] cannot send to dogenet: %v", err)
+			sock.Close()
+			return
+		}
+		log.Printf("[Iden] sent message: %v %v", ChanIden, iden.TagIdentity)
 	}
 }
