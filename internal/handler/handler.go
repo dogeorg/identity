@@ -32,11 +32,11 @@ type IdentityService struct {
 	store   spec.StoreCtx
 	sock    net.Conn
 	idenKey dnet.KeyPair
-	newIden chan iden.IdentityMsg
-	idenMsg []byte
+	newIden chan dnet.RawMessage
+	idenMsg dnet.RawMessage
 }
 
-func New(store spec.Store, idenKey dnet.KeyPair, newIden chan iden.IdentityMsg) governor.Service {
+func New(store spec.Store, idenKey dnet.KeyPair, newIden chan dnet.RawMessage) governor.Service {
 	return &IdentityService{
 		_store:  store,
 		idenKey: idenKey,
@@ -103,13 +103,13 @@ func (s *IdentityService) gossipMyIdentity(sock net.Conn) {
 	for !s.Stopping() {
 		// update identity if it has changed
 		select {
-		case id := <-s.newIden:
-			s.idenMsg = dnet.EncodeMessage(ChanIden, iden.TagIdentity, s.idenKey, id.Encode())
+		case rawMsg := <-s.newIden:
+			s.idenMsg = rawMsg
 			log.Printf("[Iden] signed new identity: %v", s.idenMsg)
 		case <-time.After(9 * time.Second):
 		}
-		if s.idenMsg != nil {
-			_, err := sock.Write(s.idenMsg)
+		if s.idenMsg.Header != nil {
+			err := s.idenMsg.Send(sock)
 			if err != nil {
 				log.Printf("[Iden] cannot send to dogenet: %v", err)
 				sock.Close()

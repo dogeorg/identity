@@ -33,13 +33,31 @@ type Queryable interface {
 // WITHOUT ROWID: SQLite version 3.8.2 (2013-12-06) or later
 
 const SQL_SCHEMA string = `
-CREATE TABLE IF NOT EXISTS identity (
-	pubkey BLOB PRIMARY KEY NOT NULL,
+CREATE TABLE IF NOT EXISTS config (
+	dayc INTEGER NOT NULL,
+	last INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS announce (
 	payload BLOB NOT NULL,
 	sig BLOB NOT NULL,
 	time INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS identity_time_i ON identity (time);
+CREATE TABLE IF NOT EXISTS identity (
+	pubkey BLOB PRIMARY KEY NOT NULL,
+	payload BLOB NOT NULL,
+	sig BLOB NOT NULL,
+	time INTEGER NOT NULL,
+	dayc INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS profile (
+	name TEXT NOT NULL,
+	bio TEXT NOT NULL,
+	lat INTEGER NOT NULL,
+	long INTEGER NOT NULL,
+	country TEXT NOT NULL,
+	city TEXT NOT NULL,
+	icon BLOB NOT NULL
+);
 `
 
 // New returns a spec.Store implementation that uses SQLite
@@ -61,11 +79,30 @@ func New(fileName string, ctx context.Context) (spec.Store, error) {
 	if err != nil {
 		return store, dbErr(err, "creating database schema")
 	}
+	// init config table
+	err = store.initConfig(ctx)
 	return store, err
 }
 
 func (s *SQLiteStore) Close() {
 	s.db.Close()
+}
+
+func (s *SQLiteStore) initConfig(ctx context.Context) error {
+	sctx := SQLiteStoreCtx{_db: s.db, ctx: ctx}
+	return sctx.doTxn("init config", func(tx *sql.Tx) error {
+		config := tx.QueryRow("SELECT dayc,last FROM config LIMIT 1")
+		var dayc int64
+		var last int64
+		err := config.Scan(&dayc, &last)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				_, err = tx.Exec("INSERT INTO config (dayc,last) VALUES (1,?)", unixDayStamp())
+			}
+			return err
+		}
+		return nil
+	})
 }
 
 func (s *SQLiteStore) WithCtx(ctx context.Context) spec.StoreCtx {
@@ -83,6 +120,15 @@ func unixDayStamp() int64 {
 func IsConflict(err error) bool {
 	if sqErr, isSq := err.(sqlite3.Error); isSq {
 		if sqErr.Code == sqlite3.ErrBusy || sqErr.Code == sqlite3.ErrLocked {
+			return true
+		}
+	}
+	return false
+}
+
+func IsConstraint(err error) bool {
+	if sqErr, isSq := err.(sqlite3.Error); isSq {
+		if sqErr.Code == sqlite3.ErrConstraint {
 			return true
 		}
 	}
@@ -159,7 +205,8 @@ func dbErr(err error, where string) error {
 
 func (s SQLiteStoreCtx) SetIdentity(pubkey []byte, payload []byte, sig []byte, time int64) error {
 	return s.doTxn("SetIdentity", func(tx *sql.Tx) error {
-		res, err := tx.Exec("UPDATE identity SET payload=?,sig=?,time=? WHERE pubkey=?", payload, sig, time, pubkey)
+		// identity expires after 30 days
+		res, err := tx.Exec("UPDATE identity SET payload=?,sig=?,time=?,dayc=30+(SELECT dayc FROM config LIMIT 1) WHERE pubkey=? AND time<?", payload, sig, time, pubkey, time)
 		if err != nil {
 			return err
 		}
@@ -168,7 +215,10 @@ func (s SQLiteStoreCtx) SetIdentity(pubkey []byte, payload []byte, sig []byte, t
 			return err
 		}
 		if num == 0 {
-			_, err = tx.Exec("INSERT INTO identity (pubkey,payload,sig,time) VALUES (?,?,?,?)", pubkey, payload, sig, time)
+			_, err = tx.Exec("INSERT INTO identity (pubkey,payload,sig,time,dayc) VALUES (?,?,?,?,30+(SELECT dayc FROM config LIMIT 1))", pubkey, payload, sig, time)
+			if IsConstraint(err) {
+				return nil // key conflict: means the new time was earlier than the stored record.
+			}
 		}
 		return err
 	})
@@ -199,6 +249,113 @@ func (s SQLiteStoreCtx) ChooseIdentity() (pubkey []byte, payload []byte, sig []b
 				return spec.ErrNotFound
 			} else {
 				return fmt.Errorf("ChooseIdentity: %w", e)
+			}
+		}
+		return nil
+	})
+	return
+}
+
+func (s SQLiteStoreCtx) GetAnnounce() (payload []byte, sig []byte, time int64, err error) {
+	err = s.doTxn("GetAnnounce", func(tx *sql.Tx) error {
+		row := tx.QueryRow("SELECT payload, sig, time FROM announce LIMIT 1")
+		e := row.Scan(&payload, &sig, &time)
+		if e != nil {
+			if errors.Is(e, sql.ErrNoRows) {
+				return spec.ErrNotFound
+			} else {
+				return fmt.Errorf("query: %v", e)
+			}
+		}
+		return nil
+	})
+	return
+}
+
+func (s SQLiteStoreCtx) SetAnnounce(payload []byte, sig []byte, time int64) error {
+	return s.doTxn("SetAnnounce", func(tx *sql.Tx) error {
+		res, err := tx.Exec("UPDATE announce SET payload=?,sig=?,time=?", payload, sig, time)
+		if err != nil {
+			return err
+		}
+		num, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if num == 0 {
+			_, err = tx.Exec("INSERT INTO announce (payload,sig,time) VALUES (?,?,?)", payload, sig, time)
+		}
+		return err
+	})
+}
+
+func (s SQLiteStoreCtx) GetProfile() (p spec.Profile, err error) {
+	err = s.doTxn("GetProfile", func(tx *sql.Tx) error {
+		row := tx.QueryRow("SELECT name,bio,lat,long,country,city,icon FROM profile LIMIT 1")
+		e := row.Scan(&p.Name, &p.Bio, &p.Lat, &p.Long, &p.Country, &p.City, &p.Icon)
+		if e != nil {
+			if errors.Is(e, sql.ErrNoRows) {
+				return spec.ErrNotFound
+			} else {
+				return fmt.Errorf("query: %v", e)
+			}
+		}
+		return nil
+	})
+	return
+}
+
+func (s SQLiteStoreCtx) SetProfile(p spec.Profile) error {
+	return s.doTxn("SetProfile", func(tx *sql.Tx) error {
+		res, err := tx.Exec("UPDATE profile SET name=?,bio=?,lat=?,long=?,country=?,city=?,icon=?", p.Name, p.Bio, p.Lat, p.Long, p.Country, p.City, p.Icon)
+		if err != nil {
+			return err
+		}
+		num, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if num == 0 {
+			_, err = tx.Exec("INSERT INTO profile (name,bio,lat,long,country,city,icon) VALUES (?,?,?,?,?,?,?)", p.Name, p.Bio, p.Lat, p.Long, p.Country, p.City, p.Icon)
+		}
+		return err
+	})
+}
+
+// Trim expires records after N days.
+//
+// To take account of the possibility that this software has not
+// been run in the last N days (which would result in immediately
+// expiring all records) we use a system where:
+//
+// We keep a day counter that we increment once per day.
+// All records, when updated, store the current day counter + N.
+// Records expire once their stored day-count is < today.
+//
+// This causes expiry to lag by the number of offline days.
+func (s SQLiteStoreCtx) Trim() (advanced bool, err error) {
+	err = s.doTxn("Trim", func(tx *sql.Tx) error {
+		// check if date has changed
+		row := tx.QueryRow("SELECT dayc,last FROM config LIMIT 1")
+		var dayc int64
+		var last int64
+		err := row.Scan(&dayc, &last)
+		if err != nil {
+			return fmt.Errorf("Trim: SELECT config: %v", err)
+		}
+		today := unixDayStamp()
+		if last != today {
+			// advance the day-count and save unix-daystamp
+			dayc += 1
+			advanced = true
+			_, err := tx.Exec("UPDATE config SET dayc=?,last=?", dayc, today)
+			if err != nil {
+				return fmt.Errorf("Trim: UPDATE: %v", err)
+			}
+			// expire identities
+			_, err = tx.Exec("DELETE FROM identity WHERE dayc < ?", dayc)
+			if err != nil {
+				return fmt.Errorf("Trim: DELETE: %v", err)
 			}
 		}
 		return nil

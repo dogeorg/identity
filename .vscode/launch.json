@@ -13,7 +13,8 @@
             "args": [],
             "cwd": "${workspaceFolder}",
             "env": {
-                "KEY":"852e81cc30bbdcfec225e3702becc0d7143b8ff3e13b42f8581d10f982044fdf46c57cad6d4d0930a5f4cf11eb030adbf44e035a90f7e75c57bc4ec5e79dd4f4"
+                "KEY":"852e81cc30bbdcfec225e3702becc0d7143b8ff3e13b42f8581d10f982044fdf46c57cad6d4d0930a5f4cf11eb030adbf44e035a90f7e75c57bc4ec5e79dd4f4",
+                "NODE":"752d7d9f445e2fb96c1d2745556ce416fd438b9dfbbe911d40e3432c4e39a06e"
             }
         }
     ]

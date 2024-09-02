@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,7 +27,7 @@ func New(bind string, port int, newIden chan iden.IdentityMsg) governor.Service 
 		newIden: newIden,
 	}
 
-	mux.HandleFunc("/ident", a.signIdent)
+	mux.HandleFunc("/ident", a.postIdent)
 
 	return a
 }
@@ -56,13 +57,15 @@ func (a *WebAPI) Run() {
 
 type NewIdent struct {
 	Name    string `json:"name"`
-	Country string `json:"country"`
-	City    string `json:"city"`
+	Bio     string `json:"bio"`
 	Lat     int    `json:"lat"`
 	Long    int    `json:"long"`
+	Country string `json:"country"`
+	City    string `json:"city"`
+	Icon    string `json:"icon"`
 }
 
-func (a *WebAPI) signIdent(w http.ResponseWriter, r *http.Request) {
+func (a *WebAPI) postIdent(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		// request
 		body, err := io.ReadAll(r.Body)
@@ -77,17 +80,24 @@ func (a *WebAPI) signIdent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		var icon [1584]byte
+		icon, err := hex.DecodeString(to.Icon)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("invalid icon: %s", err.Error()), http.StatusBadRequest)
+			return
+		}
+		if len(icon) != dnet.DogeIconSize {
+
+		}
 
 		a.newIden <- iden.IdentityMsg{
 			Time:    dnet.DogeNow(),
 			Name:    to.Name,
-			Bio:     "",
+			Bio:     to.Bio,
 			Lat:     int16(to.Lat),
 			Long:    int16(to.Long),
 			Country: to.Country,
 			City:    to.City,
-			Icon:    icon[:],
+			Icon:    icon,
 		}
 
 		bytes, err := json.Marshal("OK")
