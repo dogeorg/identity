@@ -101,8 +101,8 @@ func (ns *Announce) loadOrGenerateAnnounce() (dnet.RawMessage, time.Duration) {
 		if bytes.Equal(newMsg.Encode(), oldPayload) {
 			// re-encode the stored announcement
 			log.Printf("[announce] re-using stored announcement for %v seconds", expires-now)
-			hdr := dnet.ReEncodeMessage(dnet.ChannelIdentity, iden.TagIdentity, ns.idenKey.Pub, sig, oldPayload)
-			return dnet.RawMessage{Header: hdr, Payload: oldPayload}, time.Duration(expires-now) * time.Second
+			msg := dnet.ReEncodeMessage(dnet.ChannelIdentity, iden.TagIdentity, ns.idenKey.Pub, sig, oldPayload)
+			return msg, time.Duration(expires-now) * time.Second
 		}
 	}
 	// create a new announcement and store it

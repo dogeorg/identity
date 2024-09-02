@@ -139,7 +139,7 @@ func (s *IdentityService) gossipRandomIdentities(sock net.Conn) {
 
 		// send the message to peers
 		msg := dnet.ReEncodeMessage(ChanIden, iden.TagIdentity, pub, sig, payload)
-		_, err = sock.Write(msg)
+		err = msg.Send(sock)
 		if err != nil {
 			log.Printf("[Iden] cannot send to dogenet: %v", err)
 			sock.Close()
