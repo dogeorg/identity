@@ -3,6 +3,7 @@ package handler
 import (
 	"bufio"
 	"encoding/hex"
+	"io"
 	"log"
 	"net"
 	"time"
@@ -23,24 +24,27 @@ import (
 
 const ProtocolSocket = "/tmp/dogenet.sock"
 const OneUnixDay = 86400
+const GossipIdentityInverval = 31 * time.Second // gossip a random identity to peers
 
 var ChanIden = dnet.NewTag("Iden")
 
 type IdentityService struct {
 	governor.ServiceCtx
-	_store  spec.Store
-	store   spec.StoreCtx
-	sock    net.Conn
-	idenKey dnet.KeyPair
-	newIden chan dnet.RawMessage
-	idenMsg dnet.RawMessage
+	_store          spec.Store
+	store           spec.StoreCtx
+	sock            net.Conn
+	idenKey         dnet.KeyPair
+	newIden         chan dnet.RawMessage // from announce.go
+	announceChanges chan any
+	idenMsg         dnet.RawMessage
 }
 
-func New(store spec.Store, idenKey dnet.KeyPair, newIden chan dnet.RawMessage) governor.Service {
+func New(store spec.Store, idenKey dnet.KeyPair, newIden chan dnet.RawMessage, announceChanges chan any) governor.Service {
 	return &IdentityService{
-		_store:  store,
-		idenKey: idenKey,
-		newIden: newIden,
+		_store:          store,
+		idenKey:         idenKey,
+		newIden:         newIden,
+		announceChanges: announceChanges,
 	}
 }
 
@@ -55,17 +59,36 @@ func (s *IdentityService) Run() {
 	}
 	log.Printf("[Iden] connected to dogenet.")
 	// send channel bind request
-	bind := dnet.BindMessage{Version: 1, Chan: ChanIden}
+	bind := dnet.BindMessage{Version: 1, Chan: ChanIden, PubKey: *s.idenKey.Pub}
 	_, err = sock.Write(bind.Encode())
 	if err != nil {
 		log.Printf("[Iden] cannot send BindMessage: %v", err)
 		sock.Close()
 		return
 	}
+	// wait for the return bind request
+	reader := bufio.NewReader(sock)
+	br_buf := [dnet.BindMessageSize]byte{}
+	_, err = io.ReadAtLeast(reader, br_buf[:], len(br_buf))
+	if err != nil {
+		log.Printf("[Iden] reading BindMessage reply: %v", err)
+		sock.Close()
+		return
+	}
+	if br, ok := dnet.DecodeBindMessage(br_buf[:]); ok {
+		// send the node's pubkey to the announce service
+		// so it can include the node key in the identity announcement
+		s.announceChanges <- spec.NodePubKeyMsg{PubKey: br.PubKey[:]}
+	} else {
+		log.Printf("[Iden] invalid BindMessage reply: %v", err)
+		sock.Close()
+		return
+	}
+	log.Printf("[Iden] completed handshake.")
+	// begin sending and listening for messages
 	s.sock = sock // for Stop()
 	go s.gossipMyIdentity(sock)
 	go s.gossipRandomIdentities(sock)
-	reader := bufio.NewReader(sock)
 	// read messages until reading fails
 	for !s.Stopping() {
 		msg, err := dnet.ReadMessage(reader)
@@ -101,13 +124,10 @@ func (s *IdentityService) Stop() {
 // goroutine
 func (s *IdentityService) gossipMyIdentity(sock net.Conn) {
 	for !s.Stopping() {
-		// update identity if it has changed
-		select {
-		case rawMsg := <-s.newIden:
-			s.idenMsg = rawMsg
-			log.Printf("[Iden] signed new identity: %v", s.idenMsg)
-		case <-time.After(9 * time.Second):
-		}
+		// gossip my identity when it changes
+		rawMsg := <-s.newIden
+		s.idenMsg = rawMsg
+		log.Printf("[Iden] gossiping new identity")
 		if s.idenMsg.Header != nil {
 			err := s.idenMsg.Send(sock)
 			if err != nil {
@@ -124,7 +144,7 @@ func (s *IdentityService) gossipMyIdentity(sock net.Conn) {
 func (s *IdentityService) gossipRandomIdentities(sock net.Conn) {
 	for !s.Stopping() {
 		// wait for next turn
-		time.Sleep(11 * time.Second)
+		time.Sleep(GossipIdentityInverval)
 
 		// choose a random identity
 		pub, payload, sig, _, err := s.store.ChooseIdentity()
@@ -138,7 +158,7 @@ func (s *IdentityService) gossipRandomIdentities(sock net.Conn) {
 		}
 
 		// send the message to peers
-		msg := dnet.ReEncodeMessage(ChanIden, iden.TagIdentity, pub, sig, payload)
+		msg := dnet.ReEncodeMessage(ChanIden, iden.TagIdentity, (*[32]byte)(pub), sig, payload)
 		err = msg.Send(sock)
 		if err != nil {
 			log.Printf("[Iden] cannot send to dogenet: %v", err)

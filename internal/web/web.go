@@ -17,14 +17,14 @@ import (
 	"code.dogecoin.org/governor"
 )
 
-func New(bind string, port int, newIden chan iden.IdentityMsg) governor.Service {
+func New(bind string, port int, announceChanges chan any) governor.Service {
 	mux := http.NewServeMux()
 	a := &WebAPI{
 		srv: http.Server{
 			Addr:    net.JoinHostPort(bind, strconv.Itoa(port)),
 			Handler: mux,
 		},
-		newIden: newIden,
+		announceChanges: announceChanges,
 	}
 
 	mux.HandleFunc("/ident", a.postIdent)
@@ -34,8 +34,8 @@ func New(bind string, port int, newIden chan iden.IdentityMsg) governor.Service 
 
 type WebAPI struct {
 	governor.ServiceCtx
-	srv     http.Server
-	newIden chan iden.IdentityMsg
+	srv             http.Server
+	announceChanges chan any
 }
 
 func (a *WebAPI) Stop() {
@@ -56,14 +56,21 @@ func (a *WebAPI) Run() {
 }
 
 type NewIdent struct {
-	Name    string `json:"name"`
-	Bio     string `json:"bio"`
-	Lat     int    `json:"lat"`
-	Long    int    `json:"long"`
-	Country string `json:"country"`
-	City    string `json:"city"`
-	Icon    string `json:"icon"`
+	Name    string `json:"name"`    // [30] display name
+	Bio     string `json:"bio"`     // [120] short biography
+	Lat     int    `json:"lat"`     // WGS84 +/- 90 degrees, 60 seconds (accurate to 1850m)
+	Long    int    `json:"long"`    // WGS84 +/- 180 degrees, 60 seconds (accurate to 1850m)
+	Country string `json:"country"` // [2] ISO 3166-1 alpha-2 code (optional)
+	City    string `json:"city"`    // [30] city name (optional)
+	Icon    string `json:"icon"`    // hex-encoded 48x48 compressed (1584 bytes)
 }
+
+const (
+	minLat  = -90 * 60
+	maxLat  = 90 * 60
+	minLong = -180 * 60
+	maxLong = 180 * 60
+)
 
 func (a *WebAPI) postIdent(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
@@ -80,16 +87,42 @@ func (a *WebAPI) postIdent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// validate profile fields
+		if len(to.Name) > 30 {
+			http.Error(w, fmt.Sprintf("invalid name: more than 30 characters (got %v)", len(to.Name)), http.StatusBadRequest)
+			return
+		}
+		if len(to.Bio) > 120 {
+			http.Error(w, fmt.Sprintf("invalid bio: more than 120 characters (got %v)", len(to.Bio)), http.StatusBadRequest)
+			return
+		}
+		if to.Lat < minLat || to.Lat > maxLat {
+			http.Error(w, fmt.Sprintf("invalid latitude: out of range [%v, %v] (got %v)", minLat, maxLat, to.Lat), http.StatusBadRequest)
+			return
+		}
+		if to.Long < minLong || to.Long > maxLong {
+			http.Error(w, fmt.Sprintf("invalid longitude: out of range [%v, %v] (got %v)", minLong, maxLong, to.Long), http.StatusBadRequest)
+			return
+		}
+		if len(to.Country) != 2 && len(to.Country) != 0 {
+			http.Error(w, fmt.Sprintf("invalid country: expecting ISO 3166-1 alpha-2 code (got %v)", len(to.Country)), http.StatusBadRequest)
+			return
+		}
+		if len(to.City) > 30 {
+			http.Error(w, fmt.Sprintf("invalid city: more than 30 characters (got %v)", len(to.City)), http.StatusBadRequest)
+			return
+		}
 		icon, err := hex.DecodeString(to.Icon)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("invalid icon: %s", err.Error()), http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("invalid icon: %v", err.Error()), http.StatusBadRequest)
 			return
 		}
 		if len(icon) != dnet.DogeIconSize {
-
+			http.Error(w, fmt.Sprintf("invalid icon: expecting %v bytes (got %v)", dnet.DogeIconSize, len(icon)), http.StatusBadRequest)
+			return
 		}
 
-		a.newIden <- iden.IdentityMsg{
+		a.announceChanges <- iden.IdentityMsg{
 			Time:    dnet.DogeNow(),
 			Name:    to.Name,
 			Bio:     to.Bio,
