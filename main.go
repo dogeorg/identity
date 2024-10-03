@@ -14,6 +14,7 @@ import (
 	"code.dogecoin.org/identity/internal/web"
 )
 
+const WebServerPort = 8099
 const StoreFilename = "storage/identity.db"
 
 func main() {
@@ -35,7 +36,7 @@ func main() {
 	identSvc := handler.New(db, idenKey, newIdentity, announceChanges)
 	gov.Add("ident", identSvc)
 	gov.Add("announce", announce.New(idenKey, db, newIdentity, announceChanges))
-	gov.Add("web", web.New("localhost", 8099, announceChanges))
+	gov.Add("web", web.New("localhost", WebServerPort, announceChanges))
 
 	gov.Start()
 	gov.WaitForShutdown()
