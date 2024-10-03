@@ -3,23 +3,33 @@ package main
 import (
 	"encoding/hex"
 	"flag"
+	"fmt"
 	"log"
+	"net"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	"code.dogecoin.org/gossip/dnet"
 	"code.dogecoin.org/governor"
+	"code.dogecoin.org/identity/internal"
 	"code.dogecoin.org/identity/internal/announce"
 	"code.dogecoin.org/identity/internal/handler"
 	"code.dogecoin.org/identity/internal/store"
 	"code.dogecoin.org/identity/internal/web"
 )
 
-const WebServerPort = 8099
+const WebServerDefaultHost = "127.0.0.1"
+const WebServerDefaultPort = 8099
 const DBFileName = "identity.db"
 
 func main() {
+	bind := internal.Address{
+		Host: net.ParseIP(WebServerDefaultHost),
+		Port: WebServerDefaultPort,
+	}
+
 	dir := "./storage"
 	webdir := "./web"
 	stderr := log.New(os.Stderr, "", 0)
@@ -45,6 +55,14 @@ func main() {
 		webdir = arg
 		return nil
 	})
+	flag.Func("bind", "<ip>:<port> (use [<ip>]:<port> for IPv6)", func(arg string) error {
+		addr, err := parseIPPort(arg, "bind", WebServerDefaultPort)
+		if err != nil {
+			stderr.Fatalf("%v", err)
+		}
+		bind = addr
+		return nil
+	})
 	flag.Parse()
 
 	gov := governor.New().CatchSignals().Restart(1 * time.Second)
@@ -66,7 +84,7 @@ func main() {
 	identSvc := handler.New(db, idenKey, newIdentity, announceChanges)
 	gov.Add("ident", identSvc)
 	gov.Add("announce", announce.New(idenKey, db, newIdentity, announceChanges))
-	gov.Add("web", web.New("localhost", WebServerPort, webdir, announceChanges, db))
+	gov.Add("web", web.New(bind.Host, bind.Port, webdir, announceChanges, db))
 
 	gov.Start()
 	gov.WaitForShutdown()
@@ -90,4 +108,26 @@ func keyFromEnv() dnet.KeyPair {
 		os.Exit(3)
 	}
 	return dnet.KeyPairFromPrivKey((*[32]byte)(idenKeyB))
+}
+
+func parseIPPort(arg string, name string, defaultPort uint16) (internal.Address, error) {
+	// net.SplitHostPort doesn't return a specific error code,
+	// so we need to detect if the port it present manually.
+	colon := strings.LastIndex(arg, ":")
+	bracket := strings.LastIndex(arg, "]")
+	if colon == -1 || (arg[0] == '[' && bracket != -1 && colon < bracket) {
+		ip := net.ParseIP(arg)
+		if ip == nil {
+			return internal.Address{}, fmt.Errorf("bad --%v: invalid IP address: %v (use [<ip>]:port for IPv6)", name, arg)
+		}
+		return internal.Address{
+			Host: ip,
+			Port: defaultPort,
+		}, nil
+	}
+	res, err := internal.ParseAddress(arg)
+	if err != nil {
+		return internal.Address{}, fmt.Errorf("bad --%v: invalid IP address: %v (use [<ip>]:port for IPv6)", name, arg)
+	}
+	return res, nil
 }
