@@ -20,7 +20,7 @@ import (
 
 const DogeIconSize = dnet.DogeIconSize + 1 // +1 for style byte (XXX fix in gossip pkg)
 
-func New(bind string, port int, announceChanges chan any, store spec.Store) governor.Service {
+func New(bind string, port int, webdir string, announceChanges chan any, store spec.Store) governor.Service {
 	mux := http.NewServeMux()
 	a := &WebAPI{
 		srv: http.Server{
@@ -33,8 +33,8 @@ func New(bind string, port int, announceChanges chan any, store spec.Store) gove
 
 	mux.HandleFunc("/profile", a.postIdent)
 
-	fs := http.FileServer(http.Dir("./web"))
-	mux.Handle("/web/", http.StripPrefix("/web/", fs))
+	fs := http.FileServer(http.Dir(webdir))
+	mux.Handle("/", fs)
 
 	return a
 }

@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/hex"
+	"flag"
 	"log"
 	"os"
+	"path"
 	"time"
 
 	"code.dogecoin.org/gossip/dnet"
@@ -15,18 +17,46 @@ import (
 )
 
 const WebServerPort = 8099
-const StoreFilename = "storage/identity.db"
+const DBFileName = "identity.db"
 
 func main() {
+	dir := "./storage"
+	webdir := "./web"
+	stderr := log.New(os.Stderr, "", 0)
+	flag.Func("dir", "<path> - storage directory (default './storage')", func(arg string) error {
+		ent, err := os.Stat(arg)
+		if err != nil {
+			stderr.Fatalf("--dir: %v", err)
+		}
+		if !ent.IsDir() {
+			stderr.Fatalf("--dir: not a directory: %v", arg)
+		}
+		dir = arg
+		return nil
+	})
+	flag.Func("web", "<path> - web directory (default './web')", func(arg string) error {
+		ent, err := os.Stat(arg)
+		if err != nil {
+			stderr.Fatalf("--web: %v", err)
+		}
+		if !ent.IsDir() {
+			stderr.Fatalf("--web: not a directory: %v", arg)
+		}
+		webdir = arg
+		return nil
+	})
+	flag.Parse()
+
 	gov := governor.New().CatchSignals().Restart(1 * time.Second)
 
 	// get the private key from the KEY env-var
 	idenKey := keyFromEnv()
 	log.Printf("Identity PubKey is: %v", hex.EncodeToString(idenKey.Pub[:]))
 
-	db, err := store.New(StoreFilename, gov.GlobalContext())
+	storeFilename := path.Join(dir, DBFileName)
+	db, err := store.New(storeFilename, gov.GlobalContext())
 	if err != nil {
-		log.Printf("Error opening database: %v [%s]\n", err, StoreFilename)
+		log.Printf("Error opening database: %v [%s]\n", err, storeFilename)
 		os.Exit(1)
 	}
 
@@ -36,7 +66,7 @@ func main() {
 	identSvc := handler.New(db, idenKey, newIdentity, announceChanges)
 	gov.Add("ident", identSvc)
 	gov.Add("announce", announce.New(idenKey, db, newIdentity, announceChanges))
-	gov.Add("web", web.New("localhost", WebServerPort, announceChanges, db))
+	gov.Add("web", web.New("localhost", WebServerPort, webdir, announceChanges, db))
 
 	gov.Start()
 	gov.WaitForShutdown()
