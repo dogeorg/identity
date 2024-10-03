@@ -130,7 +130,7 @@ func (a *WebAPI) postIdent(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("invalid icon: %v", err.Error()), http.StatusBadRequest)
 			return
 		}
-		if len(icon) != dnet.DogeIconSize {
+		if len(icon) != dnet.DogeIconSize && len(icon) != 0 {
 			http.Error(w, fmt.Sprintf("invalid icon: expecting %v bytes (got %v)", DogeIconSize, len(icon)), http.StatusBadRequest)
 			return
 		}
