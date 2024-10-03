@@ -29,6 +29,9 @@ func New(bind string, port int, announceChanges chan any) governor.Service {
 
 	mux.HandleFunc("/ident", a.postIdent)
 
+	fs := http.FileServer(http.Dir("./web"))
+	mux.Handle("/web/", http.StripPrefix("/web/", fs))
+
 	return a
 }
 
