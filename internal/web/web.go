@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -20,11 +19,11 @@ import (
 
 const DogeIconSize = dnet.DogeIconSize + 1 // +1 for style byte (XXX fix in gossip pkg)
 
-func New(bind string, port int, webdir string, announceChanges chan any, store spec.Store) governor.Service {
+func New(bind dnet.Address, webdir string, announceChanges chan any, store spec.Store) governor.Service {
 	mux := http.NewServeMux()
 	a := &WebAPI{
 		srv: http.Server{
-			Addr:    net.JoinHostPort(bind, strconv.Itoa(port)),
+			Addr:    bind.String(),
 			Handler: mux,
 		},
 		announceChanges: announceChanges,

@@ -5,7 +5,7 @@ clean:
 	rm -rf ./identity
 
 identity: clean
-	go build -o identity ./cmd/identity/. 
+	go build -o identity main.go
 
 dev:
 	go run ./*.go 127.0.0.1
