@@ -2,7 +2,7 @@ package web
 
 import (
 	"context"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,9 +15,12 @@ import (
 	"code.dogecoin.org/gossip/dnet"
 	"code.dogecoin.org/gossip/iden"
 	"code.dogecoin.org/governor"
+	"code.dogecoin.org/identity/internal/spec"
 )
 
-func New(bind string, port int, announceChanges chan any) governor.Service {
+const DogeIconSize = dnet.DogeIconSize + 1 // +1 for style byte (XXX fix in gossip pkg)
+
+func New(bind string, port int, announceChanges chan any, store spec.Store) governor.Service {
 	mux := http.NewServeMux()
 	a := &WebAPI{
 		srv: http.Server{
@@ -25,9 +28,10 @@ func New(bind string, port int, announceChanges chan any) governor.Service {
 			Handler: mux,
 		},
 		announceChanges: announceChanges,
+		_store:          store,
 	}
 
-	mux.HandleFunc("/ident", a.postIdent)
+	mux.HandleFunc("/profile", a.postIdent)
 
 	fs := http.FileServer(http.Dir("./web"))
 	mux.Handle("/web/", http.StripPrefix("/web/", fs))
@@ -39,6 +43,8 @@ type WebAPI struct {
 	governor.ServiceCtx
 	srv             http.Server
 	announceChanges chan any
+	_store          spec.Store
+	store           spec.StoreCtx
 }
 
 func (a *WebAPI) Stop() {
@@ -52,6 +58,7 @@ func (a *WebAPI) Stop() {
 }
 
 func (a *WebAPI) Run() {
+	a.store = a._store.WithCtx(a.Context)
 	log.Printf("HTTP server listening on: %v\n", a.srv.Addr)
 	if err := a.srv.ListenAndServe(); err != http.ErrServerClosed { // blocking call
 		log.Printf("HTTP server: %v\n", err)
@@ -59,23 +66,24 @@ func (a *WebAPI) Run() {
 }
 
 type NewIdent struct {
-	Name    string `json:"name"`    // [30] display name
-	Bio     string `json:"bio"`     // [120] short biography
-	Lat     int    `json:"lat"`     // WGS84 +/- 90 degrees, 60 seconds (accurate to 1850m)
-	Long    int    `json:"long"`    // WGS84 +/- 180 degrees, 60 seconds (accurate to 1850m)
-	Country string `json:"country"` // [2] ISO 3166-1 alpha-2 code (optional)
-	City    string `json:"city"`    // [30] city name (optional)
-	Icon    string `json:"icon"`    // hex-encoded 48x48 compressed (1584 bytes)
+	Name    string  `json:"name"`    // [30] display name
+	Bio     string  `json:"bio"`     // [120] short biography
+	Lat     float64 `json:"lat"`     // WGS84 +/- 90 degrees, 60 seconds (accurate to 1850m)
+	Long    float64 `json:"long"`    // WGS84 +/- 180 degrees, 60 seconds (accurate to 1850m)
+	Country string  `json:"country"` // [2] ISO 3166-1 alpha-2 code (optional)
+	City    string  `json:"city"`    // [30] city name (optional)
+	Icon    string  `json:"icon"`    // base64-encoded 48x48 compressed (1584 bytes)
 }
 
 const (
-	minLat  = -90 * 60
-	maxLat  = 90 * 60
-	minLong = -180 * 60
-	maxLong = 180 * 60
+	minLat  = -90.0
+	maxLat  = 90.0
+	minLong = -180.0
+	maxLong = 180.0
 )
 
 func (a *WebAPI) postIdent(w http.ResponseWriter, r *http.Request) {
+	opts := "GET, POST, OPTIONS"
 	if r.Method == http.MethodPost {
 		// request
 		body, err := io.ReadAll(r.Body)
@@ -103,10 +111,12 @@ func (a *WebAPI) postIdent(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("invalid latitude: out of range [%v, %v] (got %v)", minLat, maxLat, to.Lat), http.StatusBadRequest)
 			return
 		}
+		lat := int(to.Lat * 10) // quantize to nearest 0.1 degree
 		if to.Long < minLong || to.Long > maxLong {
 			http.Error(w, fmt.Sprintf("invalid longitude: out of range [%v, %v] (got %v)", minLong, maxLong, to.Long), http.StatusBadRequest)
 			return
 		}
+		long := int(to.Long * 10) // quantize to nearest 0.1 degree
 		if len(to.Country) != 2 && len(to.Country) != 0 {
 			http.Error(w, fmt.Sprintf("invalid country: expecting ISO 3166-1 alpha-2 code (got %v)", len(to.Country)), http.StatusBadRequest)
 			return
@@ -115,13 +125,28 @@ func (a *WebAPI) postIdent(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("invalid city: more than 30 characters (got %v)", len(to.City)), http.StatusBadRequest)
 			return
 		}
-		icon, err := hex.DecodeString(to.Icon)
+		icon, err := base64.StdEncoding.DecodeString(to.Icon)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("invalid icon: %v", err.Error()), http.StatusBadRequest)
 			return
 		}
 		if len(icon) != dnet.DogeIconSize {
-			http.Error(w, fmt.Sprintf("invalid icon: expecting %v bytes (got %v)", dnet.DogeIconSize, len(icon)), http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("invalid icon: expecting %v bytes (got %v)", DogeIconSize, len(icon)), http.StatusBadRequest)
+			return
+		}
+
+		pro := spec.Profile{
+			Name:    to.Name,
+			Bio:     to.Bio,
+			Lat:     lat,
+			Long:    long,
+			Country: to.Country,
+			City:    to.City,
+			Icon:    icon,
+		}
+		err = a.store.SetProfile(pro)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("cannot store profile: %v", err), http.StatusInternalServerError)
 			return
 		}
 
@@ -129,25 +154,50 @@ func (a *WebAPI) postIdent(w http.ResponseWriter, r *http.Request) {
 			Time:    dnet.DogeNow(),
 			Name:    to.Name,
 			Bio:     to.Bio,
-			Lat:     int16(to.Lat),
-			Long:    int16(to.Long),
+			Lat:     int16(lat),
+			Long:    int16(long),
 			Country: to.Country,
 			City:    to.City,
 			Icon:    icon,
 		}
 
-		bytes, err := json.Marshal("OK")
+		sendProfile(w, &pro, opts)
+	} else if r.Method == http.MethodGet {
+		w.Header().Add("Cache-Control", "private; max-age=0")
+
+		pro, err := a.store.GetProfile()
 		if err != nil {
-			http.Error(w, fmt.Sprintf("error encoding JSON: %s", err.Error()), http.StatusInternalServerError)
-			return
+			if !spec.IsNotFoundError(err) {
+				http.Error(w, fmt.Sprintf("cannot load profile: %v", err), http.StatusInternalServerError)
+				return
+			}
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Content-Length", strconv.Itoa(len(bytes)))
-		w.Header().Set("Allow", "GET, OPTIONS")
-		w.Write(bytes)
+
+		sendProfile(w, &pro, opts)
 	} else {
-		options(w, r, "GET, OPTIONS")
+		options(w, r, opts)
 	}
+}
+
+func sendProfile(w http.ResponseWriter, pro *spec.Profile, opts string) {
+	res := NewIdent{
+		Name:    pro.Name,
+		Bio:     pro.Bio,
+		Lat:     float64(pro.Lat) / 10.0,  // undo quantization
+		Long:    float64(pro.Long) / 10.0, // undo quantization
+		Country: pro.Country,
+		City:    pro.City,
+		Icon:    base64.StdEncoding.EncodeToString(pro.Icon),
+	}
+	bytes, err := json.Marshal(res)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("error encoding JSON: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", strconv.Itoa(len(bytes)))
+	w.Header().Set("Allow", opts)
+	w.Write(bytes)
 }
 
 func options(w http.ResponseWriter, r *http.Request, options string) {

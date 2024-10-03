@@ -36,7 +36,7 @@ func main() {
 	identSvc := handler.New(db, idenKey, newIdentity, announceChanges)
 	gov.Add("ident", identSvc)
 	gov.Add("announce", announce.New(idenKey, db, newIdentity, announceChanges))
-	gov.Add("web", web.New("localhost", WebServerPort, announceChanges))
+	gov.Add("web", web.New("localhost", WebServerPort, announceChanges, db))
 
 	gov.Start()
 	gov.WaitForShutdown()
