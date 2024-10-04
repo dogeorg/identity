@@ -15,6 +15,8 @@ import (
 	"code.dogecoin.org/gossip/iden"
 	"code.dogecoin.org/governor"
 	"code.dogecoin.org/identity/internal/spec"
+
+	"github.com/rs/cors"
 )
 
 const DogeIconSize = dnet.DogeIconSize + 1 // +1 for style byte (XXX fix in gossip pkg)
@@ -24,7 +26,7 @@ func New(bind dnet.Address, webdir string, announceChanges chan any, store spec.
 	a := &WebAPI{
 		srv: http.Server{
 			Addr:    bind.String(),
-			Handler: mux,
+			Handler: cors.AllowAll().Handler(mux),
 		},
 		announceChanges: announceChanges,
 		_store:          store,
