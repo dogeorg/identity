@@ -10,7 +10,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}",
-            "args": [],
+            "args": ["--handler", "0.0.0.0:8095"],
             "cwd": "${workspaceFolder}",
             "env": {
                 "KEY": "852e81cc30bbdcfec225e3702becc0d7143b8ff3e13b42f8581d10f982044fdf"

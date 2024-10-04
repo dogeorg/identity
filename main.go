@@ -15,6 +15,7 @@ import (
 	"code.dogecoin.org/governor"
 	"code.dogecoin.org/identity/internal/announce"
 	"code.dogecoin.org/identity/internal/handler"
+	"code.dogecoin.org/identity/internal/spec"
 	"code.dogecoin.org/identity/internal/store"
 	"code.dogecoin.org/identity/internal/web"
 )
@@ -22,10 +23,13 @@ import (
 const WebServerPort = 8099
 const DBFileName = "identity.db"
 
+var HandlerDefaultBind = spec.BindTo{Network: "unix", Address: "/tmp/dogenet.sock"} // const
+
 func main() {
 	dir := "./storage"
 	webdir := "./web"
 	bind := dnet.Address{Host: net.IPv4zero, Port: WebServerPort}
+	handlerBind := HandlerDefaultBind
 	stderr := log.New(os.Stderr, "", 0)
 	flag.Func("dir", "<path> - storage directory (default './storage')", func(arg string) error {
 		ent, err := os.Stat(arg)
@@ -36,6 +40,14 @@ func main() {
 			stderr.Fatalf("--dir: not a directory: %v", arg)
 		}
 		dir = arg
+		return nil
+	})
+	flag.Func("handler", "Handler bind <ip>:<port> or /unix/path (use [<ip>]:<port> for IPv6)", func(arg string) error {
+		bind, err := parseBindTo(arg, "handler")
+		if err != nil {
+			return err
+		}
+		handlerBind = bind
 		return nil
 	})
 	flag.Func("web", "<path> - web directory (default './web')", func(arg string) error {
@@ -75,7 +87,7 @@ func main() {
 	newIdentity := make(chan dnet.RawMessage, 10) // announce -> handler
 	announceChanges := make(chan any, 10)         // handler,web -> announce
 
-	identSvc := handler.New(db, idenKey, newIdentity, announceChanges)
+	identSvc := handler.New(handlerBind, db, idenKey, newIdentity, announceChanges)
 	gov.Add("ident", identSvc)
 	gov.Add("announce", announce.New(idenKey, db, newIdentity, announceChanges))
 	gov.Add("web", web.New(bind, webdir, announceChanges, db))
@@ -125,4 +137,30 @@ func parseIPPort(arg string, name string, defaultPort uint16) (dnet.Address, err
 		return dnet.Address{}, fmt.Errorf("bad --%v: invalid IP address: %v (use [<ip>]:port for IPv6)", name, arg)
 	}
 	return res, nil
+}
+
+func parseBindTo(arg string, name string) (spec.BindTo, error) {
+	if strings.HasPrefix(arg, "/") {
+		// unix socket path.
+		ent, err := os.Stat(arg)
+		if err != nil {
+			return spec.BindTo{}, fmt.Errorf("bad --%v: %v", name, err)
+		}
+		if !ent.IsDir() {
+			// exists, not a directory.
+			return spec.BindTo{Network: "unix", Address: arg}, nil
+		} else {
+			return spec.BindTo{}, fmt.Errorf("bad --%v: path is a directory: %v", name, arg)
+		}
+	} else {
+		addr, err := parseIPPort(arg, name, 0)
+		if err != nil {
+			return spec.BindTo{}, fmt.Errorf("bad --%v: %v", name, err)
+		}
+		if addr.Port == 0 {
+			return spec.BindTo{}, fmt.Errorf("bad --%v: must specify a port", name)
+		}
+		// valid binding.
+		return spec.BindTo{Network: "tcp", Address: addr.String()}, nil
+	}
 }

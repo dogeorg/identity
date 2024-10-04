@@ -22,7 +22,6 @@ import (
 // Allows Identities to be pinned.
 // Prepares a set of identities to gossip to peers.
 
-const ProtocolSocket = "/tmp/dogenet.sock"
 const OneUnixDay = 86400
 const GossipIdentityInverval = 31 * time.Second // gossip a random identity to peers
 
@@ -32,6 +31,7 @@ type IdentityService struct {
 	governor.ServiceCtx
 	_store          spec.Store
 	store           spec.StoreCtx
+	bind            spec.BindTo
 	sock            net.Conn
 	idenKey         dnet.KeyPair
 	newIden         chan dnet.RawMessage // from announce.go
@@ -39,9 +39,10 @@ type IdentityService struct {
 	idenMsg         dnet.RawMessage
 }
 
-func New(store spec.Store, idenKey dnet.KeyPair, newIden chan dnet.RawMessage, announceChanges chan any) governor.Service {
+func New(bind spec.BindTo, store spec.Store, idenKey dnet.KeyPair, newIden chan dnet.RawMessage, announceChanges chan any) governor.Service {
 	return &IdentityService{
 		_store:          store,
+		bind:            bind,
 		idenKey:         idenKey,
 		newIden:         newIden,
 		announceChanges: announceChanges,
@@ -52,7 +53,7 @@ func (s *IdentityService) Run() {
 	// bind store to context
 	s.store = s._store.WithCtx(s.Context)
 	// connect to dogenet service
-	sock, err := net.Dial("unix", ProtocolSocket)
+	sock, err := net.Dial(s.bind.Network, s.bind.Address)
 	if err != nil {
 		log.Printf("[Iden] cannot connect: %v", err)
 		return
