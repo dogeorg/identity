@@ -132,10 +132,9 @@ func (a *WebAPI) postIdent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if len(icon) != DogeIconSize && len(icon) != 0 {
-		    http.Error(w, fmt.Sprintf("invalid icon: expecting %v bytes (got %v)", DogeIconSize, len(icon)), http.StatusBadRequest)
-		    return
+				http.Error(w, fmt.Sprintf("invalid icon: expecting %v bytes (got %v)", DogeIconSize, len(icon)), http.StatusBadRequest)
+				return
 		}
-
 
 		pro := spec.Profile{
 			Name:    to.Name,
