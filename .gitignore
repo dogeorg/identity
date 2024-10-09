@@ -1,3 +1,4 @@
 /storage
 /__debug_bin*
+/identity
 .DS_Store
