@@ -27,6 +27,8 @@ type StoreCtx interface {
 	SetAnnounce(payload []byte, sig []byte, time int64) error
 	GetProfile() (profile Profile, err error)
 	SetProfile(profile Profile) error
+	GetProfileNodes() (nodeList [][]byte, err error)
+	AddProfileNode(pubkey []byte) error
 	Trim() (advanced bool, err error)
 }
 

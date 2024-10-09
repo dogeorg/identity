@@ -2,7 +2,6 @@ package announce
 
 import (
 	"bytes"
-	"encoding/hex"
 	"log"
 	"time"
 
@@ -13,8 +12,7 @@ import (
 	"code.dogecoin.org/identity/internal/spec"
 )
 
-// const AnnounceLongevity = 24 * time.Hour
-const AnnounceLongevity = 5 * time.Minute
+const AnnounceLongevity = 24 * time.Hour
 const QueueAnnouncement = 10 * time.Second
 
 type Announce struct {
@@ -25,7 +23,6 @@ type Announce struct {
 	changes      chan any             // input: changes to the profile
 	receiver     chan dnet.RawMessage // output: receives new announcement RawMessages
 	profile      iden.IdentityMsg     // next identity profile to encode and sign
-	nodePubList  [][]byte             // list of node pubkeys to include in identity annoucement
 	profileValid bool                 // we have stored profile
 }
 
@@ -60,26 +57,41 @@ func (ns *Announce) updateAnnounce() {
 		case change := <-ns.changes:
 			changed := false
 			switch msg := change.(type) {
-			case iden.IdentityMsg:
-				if msg.IsValid() {
+			case spec.Profile:
+				// new profile from web API (already stored in db)
+				newIden := iden.IdentityMsg{
+					Time:    dnet.DogeNow(),
+					Name:    msg.Name,
+					Bio:     msg.Bio,
+					Lat:     int16(msg.Lat),
+					Long:    int16(msg.Long),
+					Country: msg.Country,
+					City:    msg.City,
+					Nodes:   ns.profile.Nodes, // preserve nodeList
+					Icon:    msg.Icon,
+				}
+				if newIden.IsValid() {
 					log.Printf("[announce] received new profile: %v", msg.Name)
-					ns.profile = msg
+					ns.profile = newIden
 					ns.profileValid = true
-					ns.saveProfile(msg)
 					changed = true
 				} else {
 					log.Printf("[announce] received invalid profile (ingored)")
 				}
 			case spec.NodePubKeyMsg:
-				log.Printf("[announce] received node pubkey: %v", hex.EncodeToString(msg.PubKey))
+				log.Printf("[announce] received node pubkey: %x", msg.PubKey)
 				if !ns.nodeListContains(msg.PubKey) {
-					ns.nodePubList = append(ns.nodePubList, msg.PubKey)
+					ns.profile.Nodes = append(ns.profile.Nodes, msg.PubKey)
 					changed = true
+					err := ns.store.AddProfileNode(msg.PubKey)
+					if err != nil {
+						log.Printf("[announce] cannot save announcement node: '%x': %v", msg.PubKey, err)
+					}
 				}
 			default:
 				log.Printf("[announce] received unknown change: %v", msg)
 			}
-			// whenever a change is received, reset timer.
+			// whenever a change is received, re-sign and gossip the announcement.
 			if changed {
 				if !timer.Stop() {
 					<-timer.C
@@ -110,7 +122,7 @@ func (ns *Announce) updateAnnounce() {
 
 func (ns *Announce) nodeListContains(key []byte) bool {
 	// check if nodePubList contains the specified key
-	for _, k := range ns.nodePubList {
+	for _, k := range ns.profile.Nodes {
 		if bytes.Equal(k, key) {
 			return true
 		}
@@ -121,13 +133,14 @@ func (ns *Announce) nodeListContains(key []byte) bool {
 func (ns *Announce) loadOrGenerateAnnounce() (dnet.RawMessage, time.Duration, bool) {
 	// load the stored announcement from the database
 	oldPayload, sig, expires, err := ns.store.GetAnnounce()
-	now := time.Now().Unix()
 	if err != nil {
 		log.Printf("[announce] cannot load announcement: %v", err)
-	} else if len(oldPayload) >= node.AddrMsgMinSize && len(sig) == 64 && now < expires {
+		return ns.generateAnnounce(ns.profile)
+	}
+	now := time.Now().Unix()
+	if len(oldPayload) >= node.AddrMsgMinSize && len(sig) == 64 && now < expires {
 		// determine if the announcement we stored is the same as the announcement
 		// we would produce now; if so, avoid gossiping a new announcement
-		// XXX broken by delayed NodePubKeyMsg message (never Equals)
 		oldMsg := node.DecodeAddrMsg(oldPayload) // for Time
 		newMsg := ns.profile                     // copy
 		newMsg.Time = oldMsg.Time                // ignore Time for Equals()
@@ -143,21 +156,37 @@ func (ns *Announce) loadOrGenerateAnnounce() (dnet.RawMessage, time.Duration, bo
 }
 
 func (ns *Announce) generateAnnounce(profile iden.IdentityMsg) (dnet.RawMessage, time.Duration, bool) {
-	// wait for at least one node key
+	// wait for at least one node pubkey.
+	// an identity without any nodes is useless, and if we sign an identity
+	// now, it will be invalidated when we add the local node's pubkey.
 	if !(profile.IsValid() && len(profile.Nodes) > 0) {
 		return dnet.RawMessage{}, AnnounceLongevity, false
 	}
+
+	// create and sign the new announcement.
 	log.Printf("[announce] signing a new announcement")
 	now := time.Now()
 	profile.Time = dnet.UnixToDoge(now)
-	profile.Nodes = ns.nodePubList
 	payload := profile.Encode()
 	msg := dnet.EncodeMessage(dnet.ChannelIdentity, iden.TagIdentity, ns.idenKey, payload)
 	view := dnet.MsgView(msg)
-	err := ns.store.SetAnnounce(payload, view.Signature()[:], now.Add(AnnounceLongevity).Unix())
+	sig := view.Signature()[:]
+
+	// store the announcement to re-use on next startup.
+	expires := now.Add(AnnounceLongevity).Unix()
+	err := ns.store.SetAnnounce(payload, sig, expires)
 	if err != nil {
 		log.Printf("[announce] cannot store announcement: %v", err)
 	}
+
+	// update this node's identity in the local identity database.
+	// this makes the identity visible to services on the local node.
+	idenPub := ns.idenKey.Pub[:]
+	err = ns.store.SetIdentity(idenPub, payload, sig, now.Unix())
+	if err != nil {
+		log.Printf("[announce] cannot store announcement: %v", err)
+	}
+
 	return dnet.RawMessage{Header: view.Header(), Payload: payload}, AnnounceLongevity, true
 }
 
@@ -172,29 +201,20 @@ func (ns *Announce) loadProfile() {
 		}
 		return
 	}
-	// messy, but profile will end up with a lot more data
-	ns.profile.Name = p.Name
-	ns.profile.Bio = p.Bio
-	ns.profile.Lat = int16(p.Lat)
-	ns.profile.Long = int16(p.Long)
-	ns.profile.Country = p.Country
-	ns.profile.City = p.City
-	ns.profile.Icon = p.Icon
-	ns.profileValid = ns.profile.IsValid()
-}
-
-func (ns *Announce) saveProfile(p iden.IdentityMsg) {
-	// not sure this is the announce service's responsibility;
-	// most of this will come from "profile editor" with additional data
-	// and we just need a signal that it has changed.
-	pro := spec.Profile{
+	nodeList, err := ns.store.GetProfileNodes()
+	if err != nil {
+		log.Printf("[announce] cannot load profile nodes: %v", err)
+		return
+	}
+	ns.profile = iden.IdentityMsg{
 		Name:    p.Name,
 		Bio:     p.Bio,
-		Lat:     int(p.Lat),
-		Long:    int(p.Long),
+		Lat:     int16(p.Lat),
+		Long:    int16(p.Long),
 		Country: p.Country,
 		City:    p.City,
+		Nodes:   nodeList,
 		Icon:    p.Icon,
 	}
-	ns.store.SetProfile(pro)
+	ns.profileValid = ns.profile.IsValid()
 }

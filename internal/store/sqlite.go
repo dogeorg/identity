@@ -58,6 +58,10 @@ CREATE TABLE IF NOT EXISTS profile (
 	city TEXT NOT NULL,
 	icon BLOB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS nodes (
+	pubkey BLOB PRIMARY KEY NOT NULL,
+	time INTEGER NOT NULL
+);
 `
 
 // New returns a spec.Store implementation that uses SQLite
@@ -148,7 +152,7 @@ func (s SQLiteStoreCtx) doTxn(name string, work func(tx *sql.Tx) error) error {
 					continue
 				}
 			}
-			return fmt.Errorf("[Store] cannot begin transaction: %v", err)
+			return dbErr(err, name+": begin transaction")
 		}
 		defer tx.Rollback()
 		err = work(tx)
@@ -171,7 +175,7 @@ func (s SQLiteStoreCtx) doTxn(name string, work func(tx *sql.Tx) error) error {
 					continue
 				}
 			}
-			return fmt.Errorf("[Store] cannot commit %v: %v", name, err)
+			return dbErr(err, name+": commit transaction")
 		}
 		return nil
 	}
@@ -185,6 +189,9 @@ func (s SQLiteStoreCtx) Sleep(dur time.Duration) {
 }
 
 func dbErr(err error, where string) error {
+	if errors.Is(err, spec.ErrNotFound) {
+		return err // pass through
+	}
 	if sqErr, isSq := err.(sqlite3.Error); isSq {
 		if sqErr.Code == sqlite3.ErrConstraint {
 			// MUST detect 'AlreadyExists' to fulfil the API contract!
@@ -317,6 +324,47 @@ func (s SQLiteStoreCtx) SetProfile(p spec.Profile) error {
 		}
 		if num == 0 {
 			_, err = tx.Exec("INSERT INTO profile (name,bio,lat,long,country,city,icon) VALUES (?,?,?,?,?,?,?)", p.Name, p.Bio, p.Lat, p.Long, p.Country, p.City, p.Icon)
+		}
+		return err
+	})
+}
+
+func (s SQLiteStoreCtx) GetProfileNodes() (nodeList [][]byte, err error) {
+	err = s.doTxn("GetProfileNodes", func(tx *sql.Tx) error {
+		rows, err := tx.Query("SELECT pubkey FROM nodes")
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var pub []byte
+			err = rows.Scan(&pub)
+			if err != nil {
+				return dbErr(err, "GetProfileNodes: scanning row")
+			}
+			nodeList = append(nodeList, pub)
+		}
+		if err = rows.Err(); err != nil { // docs say this check is required!
+			return dbErr(err, "GetProfileNodes: query")
+		}
+		return nil
+	})
+	return
+}
+
+func (s SQLiteStoreCtx) AddProfileNode(pubkey []byte) error {
+	return s.doTxn("AddProfileNode", func(tx *sql.Tx) error {
+		now := time.Now().Unix()
+		res, err := tx.Exec("UPDATE nodes SET time=? WHERE pubkey=?", now, pubkey)
+		if err != nil {
+			return err
+		}
+		num, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if num == 0 {
+			_, err = tx.Exec("INSERT INTO nodes (pubkey,time) VALUES (?,?)", pubkey, now)
 		}
 		return err
 	})

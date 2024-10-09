@@ -151,16 +151,8 @@ func (a *WebAPI) postIdent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		a.announceChanges <- iden.IdentityMsg{
-			Time:    dnet.DogeNow(),
-			Name:    to.Name,
-			Bio:     to.Bio,
-			Lat:     int16(lat),
-			Long:    int16(long),
-			Country: to.Country,
-			City:    to.City,
-			Icon:    icon,
-		}
+		// sign and announce the new profile
+		a.announceChanges <- pro
 
 		sendProfile(w, &pro, opts)
 	} else if r.Method == http.MethodGet {

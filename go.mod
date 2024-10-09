@@ -12,7 +12,7 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0 // indirect
 	github.com/dogeorg/doge v0.0.12 // indirect
 	github.com/mr-tron/base58 v1.2.0 // indirect
-	github.com/rs/cors v1.11.1 // indirect
+	github.com/rs/cors v1.11.1
 )
 
 // until radicle supports canonical tags
