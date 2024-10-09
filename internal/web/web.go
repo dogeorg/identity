@@ -1,9 +1,12 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -33,6 +36,7 @@ func New(bind dnet.Address, webdir string, announceChanges chan any, store spec.
 	}
 
 	mux.HandleFunc("/profile", a.postIdent)
+	mux.HandleFunc("/chits", a.getChits)
 
 	fs := http.FileServer(http.Dir(webdir))
 	mux.Handle("/", fs)
@@ -191,6 +195,91 @@ func sendProfile(w http.ResponseWriter, pro *spec.Profile, opts string) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(bytes)))
 	w.Header().Set("Allow", opts)
 	w.Write(bytes)
+}
+
+type GetChit struct {
+	Identity string `json:"identity"` // identity (node owner) pubkey hex
+	Node     string `json:"node"`     // node pubkey hex
+}
+type GetChitsResponse struct {
+	Profiles []NewIdent `json:"profiles"`
+}
+
+func (a *WebAPI) getChits(w http.ResponseWriter, r *http.Request) {
+	opts := "POST, OPTIONS"
+	if r.Method == http.MethodPost {
+		// request
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("bad request: %v", err), http.StatusBadRequest)
+			return
+		}
+		var chits []GetChit
+		err = json.Unmarshal(body, &chits)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("error decoding JSON: %s", err.Error()), http.StatusBadRequest)
+			return
+		}
+
+		res := GetChitsResponse{Profiles: make([]NewIdent, 0, len(chits))}
+		for _, chit := range chits {
+			idenPub, err := hex.DecodeString(chit.Identity)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("invalid identity pubkey '%v': %v", chit.Identity, err), http.StatusBadRequest)
+				return
+			}
+			nodePub, err := hex.DecodeString(chit.Node)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("invalid node pubkey '%v': %v", chit.Node, err), http.StatusBadRequest)
+				return
+			}
+			payload, _, _, err := a.store.GetIdentity(idenPub)
+			if err != nil {
+				if errors.Is(err, spec.ErrNotFound) {
+					// skip identities that are not in our database.
+					// XXX should we return a placeholder identity?
+					continue
+				}
+				http.Error(w, fmt.Sprintf("identity not found '%v': %v", idenPub, err), http.StatusBadRequest)
+				return
+			}
+			pro := iden.DecodeIdentityMsg(payload)
+			foundNode := false
+			for _, id := range pro.Nodes {
+				if bytes.Equal(id, nodePub) {
+					foundNode = true
+					break
+				}
+			}
+			if !foundNode {
+				// skip identities that don't claim the node in return.
+				// such an identity-claim may be forged.
+				// XXX should we return a placeholder identity?
+				continue
+			}
+			res.Profiles = append(res.Profiles, NewIdent{
+				Name:    pro.Name,
+				Bio:     pro.Bio,
+				Lat:     float64(pro.Lat) / 10.0,  // undo quantization
+				Long:    float64(pro.Long) / 10.0, // undo quantization
+				Country: pro.Country,
+				City:    pro.City,
+				Icon:    base64.StdEncoding.EncodeToString(pro.Icon),
+			})
+		}
+
+		bytes, err := json.Marshal(res)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("error encoding JSON: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Length", strconv.Itoa(len(bytes)))
+		w.Header().Set("Allow", opts)
+		w.Write(bytes)
+	} else {
+		options(w, r, opts)
+	}
 }
 
 func options(w http.ResponseWriter, r *http.Request, options string) {
