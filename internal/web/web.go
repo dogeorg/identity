@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"code.dogecoin.org/gossip/dnet"
@@ -36,6 +37,7 @@ func New(bind dnet.Address, webdir string, announceChanges chan any, store spec.
 	}
 
 	mux.HandleFunc("/profile", a.postIdent)
+	mux.HandleFunc("/locations", a.getChits)
 	mux.HandleFunc("/chits", a.getChits)
 
 	fs := http.FileServer(http.Dir(webdir))
@@ -126,6 +128,7 @@ func (a *WebAPI) postIdent(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("invalid country: expecting ISO 3166-1 alpha-2 code (got %v)", len(to.Country)), http.StatusBadRequest)
 			return
 		}
+		to.Country = strings.ToUpper(to.Country) // by convention
 		if len(to.City) > 30 {
 			http.Error(w, fmt.Sprintf("invalid city: more than 30 characters (got %v)", len(to.City)), http.StatusBadRequest)
 			return
@@ -201,8 +204,12 @@ type GetChit struct {
 	Identity string `json:"identity"` // identity (node owner) pubkey hex
 	Node     string `json:"node"`     // node pubkey hex
 }
-type GetChitsResponse struct {
-	Profiles []NewIdent `json:"profiles"`
+
+type IdentChit struct {
+	Lat     string `json:"lat"`     // WGS84 +/- 90 degrees, floating point
+	Long    string `json:"long"`    // WGS84 +/- 180 degrees, floating point
+	Country string `json:"country"` // [2] ISO 3166-1 alpha-2 code (optional)
+	City    string `json:"city"`    // [30] city name (optional)
 }
 
 func (a *WebAPI) getChits(w http.ResponseWriter, r *http.Request) {
@@ -221,7 +228,7 @@ func (a *WebAPI) getChits(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		res := GetChitsResponse{Profiles: make([]NewIdent, 0, len(chits))}
+		res := make(map[string]IdentChit, len(chits))
 		for _, chit := range chits {
 			idenPub, err := hex.DecodeString(chit.Identity)
 			if err != nil {
@@ -257,15 +264,14 @@ func (a *WebAPI) getChits(w http.ResponseWriter, r *http.Request) {
 				// XXX should we return a placeholder identity?
 				continue
 			}
-			res.Profiles = append(res.Profiles, NewIdent{
-				Name:    pro.Name,
-				Bio:     pro.Bio,
-				Lat:     float64(pro.Lat) / 10.0,  // undo quantization
-				Long:    float64(pro.Long) / 10.0, // undo quantization
+			lat := float64(pro.Lat) / 10.0  // undo quantization
+			lon := float64(pro.Long) / 10.0 // undo quantization
+			res[chit.Identity] = IdentChit{
+				Lat:     strconv.FormatFloat(lat, 'f', 1, 64),
+				Long:    strconv.FormatFloat(lon, 'f', 1, 64),
 				Country: pro.Country,
 				City:    pro.City,
-				Icon:    base64.StdEncoding.EncodeToString(pro.Icon),
-			})
+			}
 		}
 
 		bytes, err := json.Marshal(res)
