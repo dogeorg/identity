@@ -37,7 +37,7 @@ func New(bind dnet.Address, webdir string, announceChanges chan any, store spec.
 	}
 
 	mux.HandleFunc("/profile", a.postIdent)
-	mux.HandleFunc("/locations", a.getChits)
+	mux.HandleFunc("/locations", a.getLocations)
 	mux.HandleFunc("/chits", a.getChits)
 
 	fs := http.FileServer(http.Dir(webdir))
@@ -201,18 +201,21 @@ func sendProfile(w http.ResponseWriter, pro *spec.Profile, opts string) {
 }
 
 type GetChit struct {
-	Identity string `json:"identity"` // identity (node owner) pubkey hex
-	Node     string `json:"node"`     // node pubkey hex
+	Identity string `json:"identity"` // identity pubkey hex
+	Node     string `json:"node"`     // node pubkey hex (to verify ownership claim)
 }
 
-type IdentChit struct {
+// Location contains only the location information for a profile.
+type Location struct {
 	Lat     string `json:"lat"`     // WGS84 +/- 90 degrees, floating point
 	Long    string `json:"long"`    // WGS84 +/- 180 degrees, floating point
 	Country string `json:"country"` // [2] ISO 3166-1 alpha-2 code (optional)
 	City    string `json:"city"`    // [30] city name (optional)
 }
 
-func (a *WebAPI) getChits(w http.ResponseWriter, r *http.Request) {
+// getLocations returns location metadata for a set of identity pubkeys.
+// DogeMap uses this to populate the map and the "Nodes" tray at the bottom.
+func (a *WebAPI) getLocations(w http.ResponseWriter, r *http.Request) {
 	opts := "POST, OPTIONS"
 	if r.Method == http.MethodPost {
 		// request
@@ -228,7 +231,7 @@ func (a *WebAPI) getChits(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		res := make(map[string]IdentChit, len(chits))
+		res := make(map[string]Location, len(chits))
 		for _, chit := range chits {
 			idenPub, err := hex.DecodeString(chit.Identity)
 			if err != nil {
@@ -266,11 +269,109 @@ func (a *WebAPI) getChits(w http.ResponseWriter, r *http.Request) {
 			}
 			lat := float64(pro.Lat) / 10.0  // undo quantization
 			lon := float64(pro.Long) / 10.0 // undo quantization
-			res[chit.Identity] = IdentChit{
+			res[chit.Identity] = Location{
 				Lat:     strconv.FormatFloat(lat, 'f', 1, 64),
 				Long:    strconv.FormatFloat(lon, 'f', 1, 64),
 				Country: pro.Country,
 				City:    pro.City,
+			}
+		}
+
+		bytes, err := json.Marshal(res)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("error encoding JSON: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Length", strconv.Itoa(len(bytes)))
+		w.Header().Set("Allow", opts)
+		w.Write(bytes)
+	} else {
+		options(w, r, opts)
+	}
+}
+
+// Profile contains all gossiped profile information.
+type Profile struct {
+	Name    string   `json:"name"`    // [30] display name
+	Bio     string   `json:"bio"`     // [120] short biography
+	Lat     string   `json:"lat"`     // WGS84 +/- 90 degrees, floating point
+	Long    string   `json:"long"`    // WGS84 +/- 180 degrees, floating point
+	Country string   `json:"country"` // [2] ISO 3166-1 alpha-2 code
+	City    string   `json:"city"`    // [30] city name
+	Icon    string   `json:"icon"`    // [1585] compressed icon (base64-encoded)
+	Nodes   []string `json:"nodes"`   // public keys of nodes claimed by this identity (hex-encoded)
+}
+
+// getChits gets full Profiles including icons for a set of identity pubkeys.
+func (a *WebAPI) getChits(w http.ResponseWriter, r *http.Request) {
+	opts := "POST, OPTIONS"
+	if r.Method == http.MethodPost {
+		// request
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("bad request: %v", err), http.StatusBadRequest)
+			return
+		}
+		var chits []GetChit
+		err = json.Unmarshal(body, &chits)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("error decoding JSON: %s", err.Error()), http.StatusBadRequest)
+			return
+		}
+
+		res := make(map[string]Profile, len(chits))
+		for _, chit := range chits {
+			idenPub, err := hex.DecodeString(chit.Identity)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("invalid identity pubkey '%v': %v", chit.Identity, err), http.StatusBadRequest)
+				return
+			}
+			nodePub, err := hex.DecodeString(chit.Node)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("invalid node pubkey '%v': %v", chit.Node, err), http.StatusBadRequest)
+				return
+			}
+			payload, _, _, err := a.store.GetIdentity(idenPub)
+			if err != nil {
+				if errors.Is(err, spec.ErrNotFound) {
+					// skip identities that are not in our database.
+					// XXX should we return a placeholder identity?
+					continue
+				}
+				http.Error(w, fmt.Sprintf("identity not found '%v': %v", idenPub, err), http.StatusBadRequest)
+				return
+			}
+			pro := iden.DecodeIdentityMsg(payload)
+			foundNode := false
+			for _, id := range pro.Nodes {
+				if bytes.Equal(id, nodePub) {
+					foundNode = true
+					break
+				}
+			}
+			if !foundNode {
+				// skip identities that don't claim the node in return.
+				// such an identity-claim may be forged.
+				// XXX should we return a placeholder identity?
+				continue
+			}
+
+			nodeList := make([]string, 0, len(pro.Nodes))
+			for _, id := range pro.Nodes {
+				nodeList = append(nodeList, hex.EncodeToString(id))
+			}
+			lat := float64(pro.Lat) / 10.0  // undo quantization
+			lon := float64(pro.Long) / 10.0 // undo quantization
+			res[chit.Identity] = Profile{
+				Name:    pro.Name,
+				Bio:     pro.Bio,
+				Lat:     strconv.FormatFloat(lat, 'f', 1, 64),
+				Long:    strconv.FormatFloat(lon, 'f', 1, 64),
+				Country: pro.Country,
+				City:    pro.City,
+				Icon:    base64.StdEncoding.EncodeToString(pro.Icon),
+				Nodes:   nodeList,
 			}
 		}
 
