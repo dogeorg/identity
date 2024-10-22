@@ -4,7 +4,7 @@ type Profile struct {
 	Name    string
 	Bio     string
 	Lat     int
-	Long    int
+	Lon     int
 	Country string
 	City    string
 	Icon    []byte

@@ -64,7 +64,7 @@ func (ns *Announce) updateAnnounce() {
 					Name:    msg.Name,
 					Bio:     msg.Bio,
 					Lat:     int16(msg.Lat),
-					Long:    int16(msg.Long),
+					Long:    int16(msg.Lon),
 					Country: msg.Country,
 					City:    msg.City,
 					Nodes:   ns.profile.Nodes, // preserve nodeList
@@ -210,7 +210,7 @@ func (ns *Announce) loadProfile() {
 		Name:    p.Name,
 		Bio:     p.Bio,
 		Lat:     int16(p.Lat),
-		Long:    int16(p.Long),
+		Long:    int16(p.Lon),
 		Country: p.Country,
 		City:    p.City,
 		Nodes:   nodeList,

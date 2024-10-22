@@ -299,7 +299,7 @@ func (s SQLiteStoreCtx) SetAnnounce(payload []byte, sig []byte, time int64) erro
 func (s SQLiteStoreCtx) GetProfile() (p spec.Profile, err error) {
 	err = s.doTxn("GetProfile", func(tx *sql.Tx) error {
 		row := tx.QueryRow("SELECT name,bio,lat,long,country,city,icon FROM profile LIMIT 1")
-		e := row.Scan(&p.Name, &p.Bio, &p.Lat, &p.Long, &p.Country, &p.City, &p.Icon)
+		e := row.Scan(&p.Name, &p.Bio, &p.Lat, &p.Lon, &p.Country, &p.City, &p.Icon)
 		if e != nil {
 			if errors.Is(e, sql.ErrNoRows) {
 				return spec.ErrNotFound
@@ -314,7 +314,7 @@ func (s SQLiteStoreCtx) GetProfile() (p spec.Profile, err error) {
 
 func (s SQLiteStoreCtx) SetProfile(p spec.Profile) error {
 	return s.doTxn("SetProfile", func(tx *sql.Tx) error {
-		res, err := tx.Exec("UPDATE profile SET name=?,bio=?,lat=?,long=?,country=?,city=?,icon=?", p.Name, p.Bio, p.Lat, p.Long, p.Country, p.City, p.Icon)
+		res, err := tx.Exec("UPDATE profile SET name=?,bio=?,lat=?,long=?,country=?,city=?,icon=?", p.Name, p.Bio, p.Lat, p.Lon, p.Country, p.City, p.Icon)
 		if err != nil {
 			return err
 		}
@@ -323,7 +323,7 @@ func (s SQLiteStoreCtx) SetProfile(p spec.Profile) error {
 			return err
 		}
 		if num == 0 {
-			_, err = tx.Exec("INSERT INTO profile (name,bio,lat,long,country,city,icon) VALUES (?,?,?,?,?,?,?)", p.Name, p.Bio, p.Lat, p.Long, p.Country, p.City, p.Icon)
+			_, err = tx.Exec("INSERT INTO profile (name,bio,lat,long,country,city,icon) VALUES (?,?,?,?,?,?,?)", p.Name, p.Bio, p.Lat, p.Lon, p.Country, p.City, p.Icon)
 		}
 		return err
 	})
