@@ -247,7 +247,6 @@ func (a *WebAPI) getLocations(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				if errors.Is(err, spec.ErrNotFound) {
 					// skip identities that are not in our database.
-					// XXX should we return a placeholder identity?
 					continue
 				}
 				http.Error(w, fmt.Sprintf("identity not found '%v': %v", idenPub, err), http.StatusBadRequest)
@@ -263,8 +262,7 @@ func (a *WebAPI) getLocations(w http.ResponseWriter, r *http.Request) {
 			}
 			if !foundNode {
 				// skip identities that don't claim the node in return.
-				// such an identity-claim may be forged.
-				// XXX should we return a placeholder identity?
+				// such an identity-claim is likely forged.
 				continue
 			}
 			lat := float64(pro.Lat) / 10.0  // undo quantization
@@ -336,7 +334,6 @@ func (a *WebAPI) getChits(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				if errors.Is(err, spec.ErrNotFound) {
 					// skip identities that are not in our database.
-					// XXX should we return a placeholder identity?
 					continue
 				}
 				http.Error(w, fmt.Sprintf("identity not found '%v': %v", idenPub, err), http.StatusBadRequest)
@@ -352,8 +349,7 @@ func (a *WebAPI) getChits(w http.ResponseWriter, r *http.Request) {
 			}
 			if !foundNode {
 				// skip identities that don't claim the node in return.
-				// such an identity-claim may be forged.
-				// XXX should we return a placeholder identity?
+				// such an identity-claim is likely forged.
 				continue
 			}
 
