@@ -23,7 +23,7 @@ import (
 // Prepares a set of identities to gossip to peers.
 
 const OneUnixDay = 86400
-const GossipIdentityInverval = 31 * time.Second // gossip a random identity to peers
+const GossipIdentityInverval = 71 * time.Second // gossip a random identity to peers
 
 var ChanIden = dnet.NewTag("Iden")
 

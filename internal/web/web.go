@@ -76,17 +76,17 @@ type NewIdent struct {
 	Name    string  `json:"name"`    // [30] display name
 	Bio     string  `json:"bio"`     // [120] short biography
 	Lat     float64 `json:"lat"`     // WGS84 +/- 90 degrees, 60 seconds (accurate to 1850m)
-	Long    float64 `json:"long"`    // WGS84 +/- 180 degrees, 60 seconds (accurate to 1850m)
+	Lon     float64 `json:"lon"`     // WGS84 +/- 180 degrees, 60 seconds (accurate to 1850m)
 	Country string  `json:"country"` // [2] ISO 3166-1 alpha-2 code (optional)
 	City    string  `json:"city"`    // [30] city name (optional)
 	Icon    string  `json:"icon"`    // base64-encoded 48x48 compressed (1584 bytes)
 }
 
 const (
-	minLat  = -90.0
-	maxLat  = 90.0
-	minLong = -180.0
-	maxLong = 180.0
+	minLat = -90.0
+	maxLat = 90.0
+	minLon = -180.0
+	maxLon = 180.0
 )
 
 func (a *WebAPI) postIdent(w http.ResponseWriter, r *http.Request) {
@@ -119,11 +119,11 @@ func (a *WebAPI) postIdent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		lat := int(to.Lat * 10) // quantize to nearest 0.1 degree
-		if to.Long < minLong || to.Long > maxLong {
-			http.Error(w, fmt.Sprintf("invalid longitude: out of range [%v, %v] (got %v)", minLong, maxLong, to.Long), http.StatusBadRequest)
+		if to.Lon < minLon || to.Lon > maxLon {
+			http.Error(w, fmt.Sprintf("invalid longitude: out of range [%v, %v] (got %v)", minLon, maxLon, to.Lon), http.StatusBadRequest)
 			return
 		}
-		long := int(to.Long * 10) // quantize to nearest 0.1 degree
+		long := int(to.Lon * 10) // quantize to nearest 0.1 degree
 		if len(to.Country) != 2 && len(to.Country) != 0 {
 			http.Error(w, fmt.Sprintf("invalid country: expecting ISO 3166-1 alpha-2 code (got %v)", len(to.Country)), http.StatusBadRequest)
 			return
@@ -147,7 +147,7 @@ func (a *WebAPI) postIdent(w http.ResponseWriter, r *http.Request) {
 			Name:    to.Name,
 			Bio:     to.Bio,
 			Lat:     lat,
-			Long:    long,
+			Lon:     long,
 			Country: to.Country,
 			City:    to.City,
 			Icon:    icon,
@@ -183,8 +183,8 @@ func sendProfile(w http.ResponseWriter, pro *spec.Profile, opts string) {
 	res := NewIdent{
 		Name:    pro.Name,
 		Bio:     pro.Bio,
-		Lat:     float64(pro.Lat) / 10.0,  // undo quantization
-		Long:    float64(pro.Long) / 10.0, // undo quantization
+		Lat:     float64(pro.Lat) / 10.0, // undo quantization
+		Lon:     float64(pro.Lon) / 10.0, // undo quantization
 		Country: pro.Country,
 		City:    pro.City,
 		Icon:    base64.StdEncoding.EncodeToString(pro.Icon),
@@ -208,7 +208,7 @@ type GetChit struct {
 // Location contains only the location information for a profile.
 type Location struct {
 	Lat     string `json:"lat"`     // WGS84 +/- 90 degrees, floating point
-	Long    string `json:"long"`    // WGS84 +/- 180 degrees, floating point
+	Lon     string `json:"lon"`     // WGS84 +/- 180 degrees, floating point
 	Country string `json:"country"` // [2] ISO 3166-1 alpha-2 code (optional)
 	City    string `json:"city"`    // [30] city name (optional)
 }
@@ -269,7 +269,7 @@ func (a *WebAPI) getLocations(w http.ResponseWriter, r *http.Request) {
 			lon := float64(pro.Long) / 10.0 // undo quantization
 			res[chit.Identity] = Location{
 				Lat:     strconv.FormatFloat(lat, 'f', 1, 64),
-				Long:    strconv.FormatFloat(lon, 'f', 1, 64),
+				Lon:     strconv.FormatFloat(lon, 'f', 1, 64),
 				Country: pro.Country,
 				City:    pro.City,
 			}
@@ -294,7 +294,7 @@ type Profile struct {
 	Name    string   `json:"name"`    // [30] display name
 	Bio     string   `json:"bio"`     // [120] short biography
 	Lat     string   `json:"lat"`     // WGS84 +/- 90 degrees, floating point
-	Long    string   `json:"long"`    // WGS84 +/- 180 degrees, floating point
+	Lon     string   `json:"lon"`     // WGS84 +/- 180 degrees, floating point
 	Country string   `json:"country"` // [2] ISO 3166-1 alpha-2 code
 	City    string   `json:"city"`    // [30] city name
 	Icon    string   `json:"icon"`    // [1585] compressed icon (base64-encoded)
@@ -363,7 +363,7 @@ func (a *WebAPI) getChits(w http.ResponseWriter, r *http.Request) {
 				Name:    pro.Name,
 				Bio:     pro.Bio,
 				Lat:     strconv.FormatFloat(lat, 'f', 1, 64),
-				Long:    strconv.FormatFloat(lon, 'f', 1, 64),
+				Lon:     strconv.FormatFloat(lon, 'f', 1, 64),
 				Country: pro.Country,
 				City:    pro.City,
 				Icon:    base64.StdEncoding.EncodeToString(pro.Icon),
