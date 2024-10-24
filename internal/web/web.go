@@ -77,6 +77,7 @@ type NewIdent struct {
 	Bio     string  `json:"bio"`     // [120] short biography
 	Lat     float64 `json:"lat"`     // WGS84 +/- 90 degrees, 60 seconds (accurate to 1850m)
 	Lon     float64 `json:"lon"`     // WGS84 +/- 180 degrees, 60 seconds (accurate to 1850m)
+	Long    float64 `json:"long"`    // deprecated (use 'lon')
 	Country string  `json:"country"` // [2] ISO 3166-1 alpha-2 code (optional)
 	City    string  `json:"city"`    // [30] city name (optional)
 	Icon    string  `json:"icon"`    // base64-encoded 48x48 compressed (1584 bytes)
@@ -119,6 +120,9 @@ func (a *WebAPI) postIdent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		lat := int(to.Lat * 10) // quantize to nearest 0.1 degree
+		if to.Long != 0 && to.Lon == 0 {
+			to.Lon = to.Long // migration: `Long` is deprecated.
+		}
 		if to.Lon < minLon || to.Lon > maxLon {
 			http.Error(w, fmt.Sprintf("invalid longitude: out of range [%v, %v] (got %v)", minLon, maxLon, to.Lon), http.StatusBadRequest)
 			return
@@ -180,11 +184,14 @@ func (a *WebAPI) postIdent(w http.ResponseWriter, r *http.Request) {
 }
 
 func sendProfile(w http.ResponseWriter, pro *spec.Profile, opts string) {
+	lat := float64(pro.Lat) / 10.0 // undo quantization
+	lon := float64(pro.Lon) / 10.0 // undo quantization
 	res := NewIdent{
 		Name:    pro.Name,
 		Bio:     pro.Bio,
-		Lat:     float64(pro.Lat) / 10.0, // undo quantization
-		Lon:     float64(pro.Lon) / 10.0, // undo quantization
+		Lat:     lat,
+		Lon:     lon,
+		Long:    lon, // deprecated
 		Country: pro.Country,
 		City:    pro.City,
 		Icon:    base64.StdEncoding.EncodeToString(pro.Icon),
