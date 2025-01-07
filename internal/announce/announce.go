@@ -7,7 +7,6 @@ import (
 
 	"code.dogecoin.org/gossip/dnet"
 	"code.dogecoin.org/gossip/iden"
-	"code.dogecoin.org/gossip/node"
 	"code.dogecoin.org/governor"
 	"code.dogecoin.org/identity/internal/spec"
 )
@@ -71,7 +70,7 @@ func (ns *Announce) updateAnnounce() {
 					Icon:    msg.Icon,
 				}
 				if newIden.IsValid() {
-					log.Printf("[announce] received new profile: %v", msg.Name)
+					log.Printf("[announce] received new profile: %v %v %v %v %v", msg.Name, msg.Lat, msg.Lon, newIden.Lat, newIden.Long)
 					ns.profile = newIden
 					ns.profileValid = true
 					changed = true
@@ -130,7 +129,14 @@ func (ns *Announce) nodeListContains(key []byte) bool {
 	return false
 }
 
-func (ns *Announce) loadOrGenerateAnnounce() (dnet.RawMessage, time.Duration, bool) {
+func (ns *Announce) loadOrGenerateAnnounce() (msg dnet.RawMessage, remaining time.Duration, isValid bool) {
+	defer func() {
+		if err := recover(); err != nil {
+			// crash during decode; create a new announcement and store it
+			log.Printf("[announce] crash during announcement decode: %v", err)
+			msg, remaining, isValid = ns.generateAnnounce(ns.profile)
+		}
+	}()
 	// load the stored announcement from the database
 	oldPayload, sig, expires, err := ns.store.GetAnnounce()
 	if err != nil {
@@ -138,17 +144,19 @@ func (ns *Announce) loadOrGenerateAnnounce() (dnet.RawMessage, time.Duration, bo
 		return ns.generateAnnounce(ns.profile)
 	}
 	now := time.Now().Unix()
-	if len(oldPayload) >= node.AddrMsgMinSize && len(sig) == 64 && now < expires {
-		// determine if the announcement we stored is the same as the announcement
-		// we would produce now; if so, avoid gossiping a new announcement
-		oldMsg := node.DecodeAddrMsg(oldPayload) // for Time
-		newMsg := ns.profile                     // copy
-		newMsg.Time = oldMsg.Time                // ignore Time for Equals()
+	if len(oldPayload) >= iden.IdenMsgMinSize && len(sig) == 64 && now < expires {
+		// determine if the identity message we stored is the same as the identity
+		// we would produce now; if so, avoid gossiping a new identity
+		oldMsg := iden.DecodeIdentityMsg(oldPayload) // for Time
+		newMsg := ns.profile                         // copy
+		newMsg.Time = oldMsg.Time                    // ignore Time for Equals()
 		if bytes.Equal(newMsg.Encode(), oldPayload) {
-			// re-encode the stored announcement
-			log.Printf("[announce] re-using stored announcement for %v seconds", expires-now)
-			msg := dnet.ReEncodeMessage(dnet.ChannelIdentity, iden.TagIdentity, ns.idenKey.Pub, sig, oldPayload)
-			return msg, time.Duration(expires-now) * time.Second, true
+			// re-encode the stored identity
+			log.Printf("[announce] re-using stored identity for %v seconds", expires-now)
+			msg = dnet.ReEncodeMessage(dnet.ChannelIdentity, iden.TagIdentity, ns.idenKey.Pub, sig, oldPayload)
+			remaining = time.Duration(expires-now) * time.Second
+			isValid = true
+			return
 		}
 	}
 	// create a new announcement and store it
